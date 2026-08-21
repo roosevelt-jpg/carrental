@@ -12,7 +12,7 @@ export default async function LoginPage() {
   }
   const session = await getSession();
   if (session) {
-    redirect(setup.complete ? "/admin/dashboard" : "/admin/setup");
+    redirect("/admin/dashboard");
   }
   return (
     <div className="min-h-screen flex items-center justify-center px-6">

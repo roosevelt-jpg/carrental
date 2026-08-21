@@ -14,8 +14,6 @@ export async function requireCompleteSetup(): Promise<{
   if (!session) {
     redirect("/admin/login");
   }
-  if (!setup.complete) {
-    redirect("/admin/setup");
-  }
+  // Integrations can be completed later via /admin/settings/integrations.
   return { session, setup };
 }

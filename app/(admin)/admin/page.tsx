@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminIndexPage() {
   try {
     const setup = await getSetupStatus();
-    if (!setup.hasUsers || !setup.complete) {
+    if (!setup.hasUsers) {
       redirect("/admin/setup");
     }
     const session = await getSession();
