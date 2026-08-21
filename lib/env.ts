@@ -7,20 +7,37 @@ function required(name: string): string {
 }
 
 export function getAppBaseUrl(): string {
-  if (process.env.APP_BASE_URL) {
-    return process.env.APP_BASE_URL.replace(/\/$/, "");
+  const configuredUrl = validHttpUrl(process.env.APP_BASE_URL);
+  if (configuredUrl) {
+    return configuredUrl;
   }
   // Vercel production / preview fallbacks when APP_BASE_URL is not set yet
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(
-      /\/$/,
-      "",
-    );
+  const productionUrl = validHttpUrl(
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : undefined,
+  );
+  if (productionUrl) {
+    return productionUrl;
   }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
+  const previewUrl = validHttpUrl(
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+  );
+  if (previewUrl) {
+    return previewUrl;
   }
   return "http://localhost:3000";
+}
+
+function validHttpUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 }
 
 export function getWhatsAppWebhookUrl(): string {

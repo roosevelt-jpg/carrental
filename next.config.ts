@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+const scriptSources = process.env.NODE_ENV === "development"
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   deploymentId: process.env.DEPLOYMENT_VERSION,
@@ -36,7 +40,7 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+              `default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; ${scriptSources}; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
           },
         ],
       },
