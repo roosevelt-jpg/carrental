@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getAppBaseUrl } from "@/lib/env";
 import { getRedisConnection } from "@/lib/queue/connection";
+import { getStorageBackend } from "@/lib/storage/object-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const checks: Record<string, "ok" | "error"> = {
+  const checks: Record<string, "ok" | "error" | "warn"> = {
     app: "ok",
     database: "error",
     redis: "error",
+    storage: "warn",
   };
 
   try {
@@ -26,6 +29,21 @@ export async function GET() {
     checks.redis = "error";
   }
 
-  const ok = Object.values(checks).every((v) => v === "ok");
-  return NextResponse.json({ ok, checks }, { status: ok ? 200 : 503 });
+  const storage = getStorageBackend();
+  checks.storage = storage === "local" ? "warn" : "ok";
+
+  const ok = checks.database === "ok" && checks.redis === "ok" && checks.app === "ok";
+  return NextResponse.json(
+    {
+      ok,
+      baseUrl: getAppBaseUrl(),
+      storage,
+      webhooks: {
+        whatsapp: `${getAppBaseUrl()}/api/webhooks/whatsapp`,
+        stripe: `${getAppBaseUrl()}/api/webhooks/stripe`,
+      },
+      checks,
+    },
+    { status: ok ? 200 : 503 },
+  );
 }

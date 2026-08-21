@@ -3,11 +3,18 @@ import {
   CLAUDE_MODEL_OPTIONS,
   DEFAULT_CLAUDE_MODEL,
 } from "@/lib/integrations/constants";
-import { getAppBaseUrl } from "@/lib/env";
-import { isProviderConfigured, listMaskedCredentials } from "@/lib/settings/settings-service";
+import {
+  getAppBaseUrl,
+  getStripeWebhookUrl,
+  getWhatsAppWebhookUrl,
+} from "@/lib/env";
+import {
+  isProviderConfigured,
+  listMaskedCredentials,
+} from "@/lib/settings/settings-service";
+import { getStorageBackend } from "@/lib/storage/object-storage";
 
 export default async function IntegrationsPage() {
-  const base = getAppBaseUrl();
   const [whatsapp, anthropic, stripe] = await Promise.all([
     listMaskedCredentials("whatsapp"),
     listMaskedCredentials("anthropic"),
@@ -18,16 +25,25 @@ export default async function IntegrationsPage() {
     isProviderConfigured("anthropic"),
     isProviderConfigured("stripe"),
   ]);
+  const storage = getStorageBackend();
+  const storageLabel =
+    storage === "vercel-blob"
+      ? "Vercel Blob"
+      : storage === "s3"
+        ? "S3"
+        : "local disk";
 
   return (
     <div>
       <h1 className="font-serif text-4xl">Integrations</h1>
       <p className="mt-3 max-w-2xl text-muted">
-        Keys are encrypted at rest. After save, only the last four characters are shown.
+        Keys are encrypted at rest in Postgres. After save, only the last four
+        characters are shown. Photos use {storageLabel}.
       </p>
+      <p className="mt-2 text-xs text-muted">Public origin: {getAppBaseUrl()}</p>
       <IntegrationsPanel
-        whatsappWebhookUrl={`${base}/api/webhooks/whatsapp`}
-        stripeWebhookUrl={`${base}/api/webhooks/stripe`}
+        whatsappWebhookUrl={getWhatsAppWebhookUrl()}
+        stripeWebhookUrl={getStripeWebhookUrl()}
         models={[...CLAUDE_MODEL_OPTIONS]}
         defaultModel={DEFAULT_CLAUDE_MODEL}
         providers={{

@@ -3,10 +3,17 @@ import {
   S3Client,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { del, put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { getAppBaseUrl } from "@/lib/env";
+
+export type StorageBackend = "vercel-blob" | "s3" | "local";
+
+function blobConfigured() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
 
 function s3Configured() {
   return Boolean(
@@ -29,8 +36,15 @@ function getS3Client() {
   });
 }
 
+/** Prefer Vercel Blob (production), then S3-compatible, then local disk (dev). */
+export function getStorageBackend(): StorageBackend {
+  if (blobConfigured()) return "vercel-blob";
+  if (s3Configured()) return "s3";
+  return "local";
+}
+
 export function isObjectStorageConfigured() {
-  return s3Configured();
+  return getStorageBackend() !== "local";
 }
 
 export async function uploadVehiclePhoto(params: {
@@ -41,8 +55,19 @@ export async function uploadVehiclePhoto(params: {
 }): Promise<{ url: string; key: string }> {
   const ext = extensionFor(params.contentType, params.originalName);
   const key = `vehicles/${params.vehicleId}/${randomUUID()}${ext}`;
+  const backend = getStorageBackend();
 
-  if (s3Configured()) {
+  if (backend === "vercel-blob") {
+    const blob = await put(key, params.bytes, {
+      access: "public",
+      contentType: params.contentType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+    });
+    return { url: blob.url, key: blob.pathname || key };
+  }
+
+  if (backend === "s3") {
     const bucket = process.env.S3_BUCKET!;
     const client = getS3Client();
     await client.send(
@@ -53,18 +78,23 @@ export async function uploadVehiclePhoto(params: {
         ContentType: params.contentType,
       }),
     );
-    const base = (process.env.S3_PUBLIC_BASE_URL || process.env.S3_ENDPOINT!).replace(
-      /\/$/,
-      "",
-    );
+    const base = (
+      process.env.S3_PUBLIC_BASE_URL || process.env.S3_ENDPOINT!
+    ).replace(/\/$/, "");
     const url = process.env.S3_PUBLIC_BASE_URL
       ? `${base}/${key}`
       : `${base}/${bucket}/${key}`;
     return { url, key };
   }
 
-  // Local fallback when S3 env is not set yet — still real files, not mocked media IDs.
-  const dir = path.join(process.cwd(), "public", "uploads", "vehicles", params.vehicleId);
+  // Local fallback when Blob/S3 env is not set — real files, not mocked media IDs.
+  const dir = path.join(
+    process.cwd(),
+    "public",
+    "uploads",
+    "vehicles",
+    params.vehicleId,
+  );
   await mkdir(dir, { recursive: true });
   const filename = `${randomUUID()}${ext}`;
   await writeFile(path.join(dir, filename), params.bytes);
@@ -84,6 +114,19 @@ export async function deleteStoredObject(urlOrKey: string) {
       await unlink(filePath);
     } catch {
       // ignore missing file
+    }
+    return;
+  }
+
+  if (
+    blobConfigured() &&
+    (urlOrKey.includes("blob.vercel-storage.com") ||
+      urlOrKey.startsWith("vehicles/"))
+  ) {
+    try {
+      await del(urlOrKey, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    } catch {
+      // ignore missing blob
     }
     return;
   }

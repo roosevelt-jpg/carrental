@@ -28,11 +28,7 @@ export async function processMediaReupload(data: MediaReuploadJob) {
 
   const mediaIds: string[] = [];
   for (const url of vehicle.photoUrls) {
-    const mime = url.toLowerCase().endsWith(".png")
-      ? "image/png"
-      : url.toLowerCase().endsWith(".webp")
-        ? "image/webp"
-        : "image/jpeg";
+    const mime = mimeFromUrl(url);
     const id = await uploadMediaFromUrl(url, mime);
     mediaIds.push(id);
   }
@@ -42,4 +38,17 @@ export async function processMediaReupload(data: MediaReuploadJob) {
     data: { mediaIds },
   });
   return { mediaIds };
+}
+
+function mimeFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (pathname.endsWith(".png")) return "image/png";
+    if (pathname.endsWith(".webp")) return "image/webp";
+  } catch {
+    const lower = url.toLowerCase();
+    if (lower.includes(".png")) return "image/png";
+    if (lower.includes(".webp")) return "image/webp";
+  }
+  return "image/jpeg";
 }

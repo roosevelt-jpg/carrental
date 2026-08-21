@@ -1,6 +1,13 @@
 import { prisma } from "@/lib/db";
-import { getAppBaseUrl } from "@/lib/env";
-import { getCredential, isProviderConfigured } from "@/lib/settings/settings-service";
+import {
+  getAppBaseUrl,
+  getStripeWebhookUrl,
+  getWhatsAppWebhookUrl,
+} from "@/lib/env";
+import {
+  getCredential,
+  isProviderConfigured,
+} from "@/lib/settings/settings-service";
 
 export type SetupStatus = {
   hasUsers: boolean;
@@ -13,6 +20,7 @@ export type SetupStatus = {
   currentStep: number;
   whatsappWebhookUrl: string;
   stripeWebhookUrl: string;
+  baseUrl: string;
 };
 
 export async function getSetupStatus(): Promise<SetupStatus> {
@@ -41,8 +49,6 @@ export async function getSetupStatus(): Promise<SetupStatus> {
   const firstIncomplete = flags.findIndex((flag) => !flag);
   const currentStep = firstIncomplete === -1 ? 6 : firstIncomplete;
 
-  const baseUrl = getAppBaseUrl();
-
   return {
     hasUsers,
     whatsapp,
@@ -52,7 +58,8 @@ export async function getSetupStatus(): Promise<SetupStatus> {
     hasEscalationContact,
     complete: flags.every(Boolean),
     currentStep,
-    whatsappWebhookUrl: `${baseUrl}/api/webhooks/whatsapp`,
-    stripeWebhookUrl: `${baseUrl}/api/webhooks/stripe`,
+    whatsappWebhookUrl: getWhatsAppWebhookUrl(),
+    stripeWebhookUrl: getStripeWebhookUrl(),
+    baseUrl: getAppBaseUrl(),
   };
 }

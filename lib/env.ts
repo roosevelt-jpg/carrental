@@ -7,7 +7,28 @@ function required(name: string): string {
 }
 
 export function getAppBaseUrl(): string {
-  return (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  if (process.env.APP_BASE_URL) {
+    return process.env.APP_BASE_URL.replace(/\/$/, "");
+  }
+  // Vercel production / preview fallbacks when APP_BASE_URL is not set yet
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(
+      /\/$/,
+      "",
+    );
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
+  }
+  return "http://localhost:3000";
+}
+
+export function getWhatsAppWebhookUrl(): string {
+  return `${getAppBaseUrl()}/api/webhooks/whatsapp`;
+}
+
+export function getStripeWebhookUrl(): string {
+  return `${getAppBaseUrl()}/api/webhooks/stripe`;
 }
 
 export function getSessionSecret(): string {

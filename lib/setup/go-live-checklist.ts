@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
-import { isProviderConfigured } from "@/lib/settings/settings-service";
-import { getCredential } from "@/lib/settings/settings-service";
+import { getAppBaseUrl } from "@/lib/env";
+import {
+  getCredential,
+  isProviderConfigured,
+} from "@/lib/settings/settings-service";
+import { getStorageBackend } from "@/lib/storage/object-storage";
 
 export type ChecklistItem = {
   id: string;
@@ -19,6 +23,7 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     ownerPhone,
     templates,
     openEscalations,
+    vehiclesWithPhotos,
   ] = await Promise.all([
     isProviderConfigured("whatsapp"),
     isProviderConfigured("anthropic"),
@@ -28,16 +33,47 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     getCredential("whatsapp", "owner_phone_number"),
     prisma.messageTemplate.findMany(),
     prisma.escalation.count({ where: { status: "OPEN" } }),
+    prisma.vehicle.count({
+      where: { active: true, photoUrls: { isEmpty: false } },
+    }),
   ]);
 
   const presentTypes = new Set(policyTypes.map((p) => p.policyType));
-  const requiredPolicies = ["DEPOSIT", "DOCUMENTATION", "DELIVERY", "CANCELLATION"] as const;
+  const requiredPolicies = [
+    "DEPOSIT",
+    "DOCUMENTATION",
+    "DELIVERY",
+    "CANCELLATION",
+  ] as const;
   const policiesComplete = requiredPolicies.every((t) => presentTypes.has(t));
-  const templatesApproved = templates.filter((t) => t.status === "APPROVED").length;
+  const templatesApproved = templates.filter((t) => t.status === "APPROVED")
+    .length;
   const stripeKey = await getCredential("stripe", "secret_key");
   const stripeLive = Boolean(stripeKey?.startsWith("sk_live_"));
+  const storage = getStorageBackend();
+  const baseUrl = getAppBaseUrl();
+  const productionHost = "carrental.myflynai.com";
+  const baseLooksProduction =
+    baseUrl.includes(productionHost) || Boolean(process.env.VERCEL);
 
   return [
+    {
+      id: "base-url",
+      label: `Public domain set (${productionHost})`,
+      done: baseLooksProduction,
+      detail: baseUrl,
+    },
+    {
+      id: "storage",
+      label: "Object storage ready (Vercel Blob or S3)",
+      done: storage !== "local",
+      detail:
+        storage === "vercel-blob"
+          ? "Vercel Blob"
+          : storage === "s3"
+            ? "S3-compatible"
+            : "Local disk only — set BLOB_READ_WRITE_TOKEN on Vercel",
+    },
     {
       id: "integrations",
       label: "WhatsApp, Claude, and Stripe all connected",
@@ -49,6 +85,12 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
       label: "At least one active vehicle",
       done: vehicleCount > 0,
       detail: `${vehicleCount} active`,
+    },
+    {
+      id: "photos",
+      label: "At least one vehicle has photos (Blob → WhatsApp media)",
+      done: vehiclesWithPhotos > 0,
+      detail: `${vehiclesWithPhotos} with photos`,
     },
     {
       id: "policies",
