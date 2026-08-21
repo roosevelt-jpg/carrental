@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { getSession } from "@/lib/auth/session";
 import { getSetupStatus } from "@/lib/setup/status";
 
@@ -16,6 +17,10 @@ export default async function AdminIndexPage() {
     }
     redirect("/admin/dashboard");
   } catch (error) {
+    // redirect() throws NEXT_REDIRECT — must not be treated as a failure.
+    if (isRedirectError(error)) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     return (
       <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-16">
