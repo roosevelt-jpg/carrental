@@ -14,8 +14,8 @@ const cormorant = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: "Atelier Fleet — Admin",
-  description: "WhatsApp sales agent for a luxury car rental business",
+  title: "Drivn+ — Go your own way",
+  description: "Beautiful cars, thoughtfully delivered. Discover your next drive with Drivn+.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
