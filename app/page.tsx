@@ -37,6 +37,7 @@ export default async function Home() {
           <a href="#fleet" className="transition-colors hover:text-gold-2">Our fleet</a>
           <a href="#story" className="transition-colors hover:text-gold-2">Our story</a>
           <a href="#contact" className="transition-colors hover:text-gold-2">Contact</a>
+          <a href="/admin" className="rounded-full border border-cream/40 px-4 py-2 transition-colors hover:border-gold hover:text-gold-2">Admin</a>
         </nav>
         <button type="button" className="rounded-full border border-cream/50 p-3 text-cream md:hidden" aria-label="Open navigation menu">
           <span className="block h-px w-5 bg-current" />
