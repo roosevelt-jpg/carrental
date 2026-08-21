@@ -12,7 +12,10 @@ model User {
   email        String   @unique
   passwordHash String
   role         UserRole @default(STAFF)
+  name         String?
+  avatarUrl    String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 enum UserRole {
@@ -441,6 +444,18 @@ model CmsRevision {
 
   @@unique([cmsSettingsId, revision])
   @@index([cmsSettingsId, createdAt])
+}
+
+model TranslationCache {
+  id             String   @id @default(cuid())
+  locale         String
+  sourceHash     String
+  translatedText String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([locale, sourceHash])
+  @@index([locale, updatedAt])
 }
 
 model FaqEntry {

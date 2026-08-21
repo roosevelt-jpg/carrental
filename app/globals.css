@@ -15,6 +15,19 @@
   --font-cormorant: Georgia, "Times New Roman", serif;
 }
 
+html[data-theme="light"] {
+  --ink: #f4efe7;
+  --panel: #fffaf3;
+  --panel-2: #ece3d6;
+  --line: rgba(83, 61, 35, 0.17);
+  --gold: #a77735;
+  --gold-2: #77501f;
+  --cream: #211b15;
+  --muted: #74695d;
+  --danger: #a94434;
+  --ok: #587a4a;
+}
+
 @theme inline {
   --color-ink: var(--ink);
   --color-panel: var(--panel);
@@ -37,6 +50,7 @@ body {
     var(--ink);
   color: var(--cream);
   font-family: var(--font-outfit);
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
 h1,
@@ -53,13 +67,59 @@ h2,
 input,
 select,
 textarea {
-  background: #14110e;
+  background: color-mix(in srgb, var(--panel) 82%, var(--ink));
   color: var(--cream);
   border: 1px solid var(--line);
   border-radius: 0.4rem;
   padding: 0.7rem 0.85rem;
   width: 100%;
   outline: none;
+}
+
+html[data-theme="light"] body {
+  background:
+    radial-gradient(900px 540px at 8% -10%, rgba(167, 119, 53, 0.12), transparent 55%),
+    radial-gradient(800px 460px at 100% 0%, rgba(216, 196, 167, 0.45), transparent 50%),
+    var(--ink);
+}
+
+.public-site {
+  --site-bg: var(--cms-bg);
+}
+
+html[data-theme="light"] .public-site {
+  --site-bg: #f4efe7;
+}
+
+.public-hero {
+  --cream: #f3eadc;
+  --muted: #b8ada0;
+}
+
+.admin-card {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 24px 70px rgba(10, 8, 5, 0.08);
+}
+
+.admin-luxury-grid {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.3), transparent 75%);
+}
+
+.admin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 input:focus,

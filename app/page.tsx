@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
 import { getPublicCmsContent } from "@/lib/cms/content";
+import { PreferencesControls } from "@/components/preferences/preferences-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function HomePage() {
     draft: Boolean(session),
   });
   const style = {
-    "--site-bg": settings.backgroundColor,
+    "--cms-bg": settings.backgroundColor,
     "--site-primary": settings.primaryColor,
     "--site-accent": settings.accentColor,
   } as CSSProperties;
@@ -49,7 +50,8 @@ export default async function HomePage() {
     return (
       <main
         style={style}
-        className="relative grid min-h-screen place-items-center overflow-hidden bg-[var(--site-bg)] px-6 text-cream"
+        data-i18n
+        className="public-site public-hero relative grid min-h-screen place-items-center overflow-hidden bg-[var(--site-bg)] px-6 text-cream"
       >
         <Image
           src="/images/carrental-hero.png"
@@ -82,14 +84,14 @@ export default async function HomePage() {
   const [heroLead, heroEmphasis] = splitHeadline(settings.heroTitle);
 
   return (
-    <main style={style} className="min-h-screen bg-[var(--site-bg)] text-cream">
+    <main data-i18n style={style} className="public-site min-h-screen bg-[var(--site-bg)] text-cream transition-colors">
       {!settings.sitePublished ? (
         <div className="bg-[var(--site-primary)] px-4 py-2 text-center text-xs font-semibold uppercase tracking-widest text-black">
           Draft preview — only signed-in staff can see this version
         </div>
       ) : null}
 
-      <section id="top" className="relative isolate min-h-screen overflow-hidden">
+      <section id="top" className="public-hero relative isolate min-h-screen overflow-hidden">
         <Image
           unoptimized={heroImage.startsWith("http")}
           src={heroImage}
@@ -137,6 +139,7 @@ export default async function HomePage() {
                 WhatsApp
               </a>
             ) : null}
+            <PreferencesControls compact />
           </nav>
 
           <details className="group relative md:hidden">
@@ -149,6 +152,7 @@ export default async function HomePage() {
               <a href="#about" className="rounded-xl px-4 py-3 hover:bg-white/10">About</a>
               {faqs.length > 0 ? <a href="#faq" className="rounded-xl px-4 py-3 hover:bg-white/10">FAQ</a> : null}
               <a href="#contact" className="rounded-xl px-4 py-3 hover:bg-white/10">Contact</a>
+              <div className="mt-2 border-t border-white/15 px-2 pt-3"><PreferencesControls compact /></div>
             </nav>
           </details>
         </header>
