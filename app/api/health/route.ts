@@ -27,12 +27,16 @@ export async function GET() {
     database: "missing",
     redis: "missing",
     storage: "warn",
+    worker: "missing",
   };
 
   if (process.env.DATABASE_URL) {
     try {
       await withTimeout(prisma.$queryRaw`SELECT 1`, 2500);
       checks.database = "ok";
+      const heartbeat = await prisma.workerHeartbeat.findUnique({ where: { id: "primary" } });
+      checks.worker =
+        heartbeat && Date.now() - heartbeat.updatedAt.getTime() < 90_000 ? "ok" : "error";
     } catch {
       checks.database = "error";
     }
@@ -60,7 +64,11 @@ export async function GET() {
   const storage = getStorageBackend();
   checks.storage = storage === "local" ? "warn" : "ok";
 
-  const ok = checks.database === "ok" && checks.redis === "ok" && checks.app === "ok";
+  const ok =
+    checks.database === "ok" &&
+    checks.redis === "ok" &&
+    checks.worker === "ok" &&
+    checks.app === "ok";
   return NextResponse.json(
     {
       ok,

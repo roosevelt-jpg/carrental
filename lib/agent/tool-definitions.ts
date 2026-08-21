@@ -80,18 +80,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "create_booking",
-    description: "Finalize a booking after payment confirmation.",
-    input_schema: {
-      type: "object",
-      properties: {
-        quote_id: { type: "string" },
-        payment_reference: { type: "string" },
-      },
-      required: ["quote_id", "payment_reference"],
-    },
-  },
-  {
     name: "get_policy",
     description:
       "Retrieve current policy text (deposit, documentation, delivery, or cancellation).",
@@ -116,6 +104,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
         reason_code: { type: "string" },
         conversation_summary: { type: "string" },
         urgency: { type: "string", enum: ["normal", "high"] },
+        suggested_reply: { type: "string" },
       },
       required: ["reason_code", "conversation_summary"],
     },

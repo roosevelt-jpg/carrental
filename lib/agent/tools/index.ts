@@ -4,7 +4,6 @@ import { checkAvailability } from "@/lib/agent/tools/check-availability";
 import { getVehiclePhotos } from "@/lib/agent/tools/get-vehicle-photos";
 import { createQuote } from "@/lib/agent/tools/create-quote";
 import { generatePaymentLink } from "@/lib/agent/tools/generate-payment-link";
-import { createBooking } from "@/lib/agent/tools/create-booking";
 import { getPolicy } from "@/lib/agent/tools/get-policy";
 import { escalateToOwner } from "@/lib/agent/tools/escalate-to-owner";
 
@@ -57,11 +56,6 @@ export async function executeTool(
           quote_id: String(input.quote_id),
           amount: Number(input.amount),
         });
-      case "create_booking":
-        return await createBooking({
-          quote_id: String(input.quote_id),
-          payment_reference: String(input.payment_reference),
-        });
       case "get_policy":
         return await getPolicy({ policy_type: String(input.policy_type) });
       case "escalate_to_owner":
@@ -69,6 +63,9 @@ export async function executeTool(
           reason_code: String(input.reason_code),
           conversation_summary: String(input.conversation_summary),
           urgency: input.urgency ? String(input.urgency) : undefined,
+          suggested_reply: input.suggested_reply
+            ? String(input.suggested_reply)
+            : undefined,
         });
       default:
         return { error: `Unknown tool: ${name}` };

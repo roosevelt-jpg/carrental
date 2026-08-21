@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCredential } from "@/lib/settings/settings-service";
 import { getInboundMessageQueue } from "@/lib/queue/queues";
+import { captureException } from "@/lib/observability/sentry";
 
 export const runtime = "nodejs";
 
@@ -35,16 +36,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const messages = extractInboundMessages(payload);
+  const { messages, statuses, templateUpdates } = extractWebhookData(payload);
   const queue = getInboundMessageQueue();
 
-  for (const message of messages) {
-    const existing = await prisma.message.findUnique({
-      where: { metaMessageId: message.id },
-    });
-    if (existing) {
-      continue;
-    }
+  try {
+    for (const message of messages) {
     await queue.add(
       "inbound",
       {
@@ -52,17 +48,64 @@ export async function POST(request: NextRequest) {
         from: message.from,
         timestamp: message.timestamp,
         type: message.type,
-        text: message.text?.body,
+        text:
+          message.text?.body ??
+          (message.reaction?.emoji ? `[Customer reacted ${message.reaction.emoji}]` : undefined),
+        contextMessageId: message.context?.id,
         payload: message,
       },
       { jobId: message.id },
     );
+    }
+
+    for (const status of statuses) {
+    const deliveryStatus = mapDeliveryStatus(status.status);
+    if (!deliveryStatus) continue;
+    const message = await prisma.message.findUnique({
+      where: { metaMessageId: status.id },
+      select: { id: true, deliveryStatus: true },
+    });
+    if (message && shouldAdvanceDeliveryStatus(message.deliveryStatus, deliveryStatus)) {
+      await prisma.message.update({
+        where: { id: message.id },
+        data: {
+          deliveryStatus,
+          statusUpdatedAt: new Date(),
+          failureCode: status.errors?.[0]?.code?.toString() ?? null,
+        },
+      });
+    }
+
+    for (const update of templateUpdates) {
+      const status =
+        update.event === "APPROVED"
+          ? "APPROVED"
+          : update.event === "REJECTED" || update.event === "DISABLED"
+            ? "REJECTED"
+            : "SUBMITTED";
+      await prisma.messageTemplate.updateMany({
+        where: {
+          OR: [
+            ...(update.message_template_id ? [{ metaTemplateId: update.message_template_id }] : []),
+            ...(update.message_template_name ? [{ metaTemplateName: update.message_template_name }] : []),
+          ],
+        },
+        data: {
+          status,
+          rejectionReason: status === "REJECTED" ? update.reason ?? update.event : null,
+        },
+      });
+    }
+    }
+  } catch (error) {
+    captureException(error, { webhook: "whatsapp" });
+    return NextResponse.json({ error: "Webhook enqueue failed" }, { status: 503 });
   }
 
   return NextResponse.json({ ok: true });
 }
 
-function verifyMetaSignature(
+export function verifyMetaSignature(
   rawBody: string,
   header: string | null,
   appSecret: string,
@@ -80,34 +123,87 @@ function verifyMetaSignature(
   return timingSafeEqual(a, b);
 }
 
-type WhatsAppInbound = {
+export type WhatsAppInbound = {
   id: string;
   from: string;
   timestamp: string;
   type: string;
   text?: { body?: string };
+  reaction?: { emoji?: string; message_id?: string };
+  context?: { id?: string; from?: string };
 };
 
-type WhatsAppWebhook = {
+export type WhatsAppStatus = {
+  id: string;
+  status: string;
+  errors?: Array<{ code?: number }>;
+};
+
+export type WhatsAppWebhook = {
   entry?: Array<{
     changes?: Array<{
+      field?: string;
       value?: {
         messages?: WhatsAppInbound[];
+        statuses?: WhatsAppStatus[];
+        event?: string;
+        message_template_id?: string;
+        message_template_name?: string;
+        reason?: string;
       };
     }>;
   }>;
 };
 
-function extractInboundMessages(payload: WhatsAppWebhook): WhatsAppInbound[] {
-  const out: WhatsAppInbound[] = [];
+export function extractWebhookData(payload: WhatsAppWebhook) {
+  const messages: WhatsAppInbound[] = [];
+  const statuses: WhatsAppStatus[] = [];
+  const templateUpdates: Array<{
+    event: string;
+    message_template_id?: string;
+    message_template_name?: string;
+    reason?: string;
+  }> = [];
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       for (const message of change.value?.messages ?? []) {
         if (message.id && message.from) {
-          out.push(message);
+          messages.push(message);
         }
+      }
+      statuses.push(...(change.value?.statuses ?? []).filter((status) => status.id));
+      if (change.field === "message_template_status_update" && change.value?.event) {
+        templateUpdates.push({
+          event: change.value.event,
+          message_template_id: change.value.message_template_id,
+          message_template_name: change.value.message_template_name,
+          reason: change.value.reason,
+        });
       }
     }
   }
-  return out;
+  return { messages, statuses, templateUpdates };
+}
+
+export function mapDeliveryStatus(status: string) {
+  const statuses = {
+    sent: "SENT",
+    delivered: "DELIVERED",
+    read: "READ",
+    failed: "FAILED",
+  } as const;
+  return statuses[status as keyof typeof statuses];
+}
+
+export function shouldAdvanceDeliveryStatus(current: string, next: string) {
+  if (next === "FAILED") return current !== "READ";
+  const rank: Record<string, number> = {
+    RECEIVED: 0,
+    ACCEPTED: 1,
+    SENT: 2,
+    DELIVERED: 3,
+    READ: 4,
+    FAILED: 5,
+  };
+  return (rank[next] ?? -1) > (rank[current] ?? -1);
 }

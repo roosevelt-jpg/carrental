@@ -2,23 +2,23 @@
   "name": "carrental",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && npm run build:worker && next build",
+    "build:worker": "esbuild ./lib/queue/worker.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/worker.mjs --external:@prisma/client --external:ioredis --external:bullmq --external:@sentry/node --external:@anthropic-ai/sdk --external:stripe --external:@aws-sdk/* --external:@vercel/blob --external:@node-rs/argon2 --external:jose --external:zod --external:dotenv",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "worker": "tsx lib/queue/worker.ts",
+    "worker": "node dist/worker.mjs",
+    "worker:dev": "tsx lib/queue/worker.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:generate": "prisma generate",
     "generate-keys": "tsx scripts/generate-keys.ts",
     "reencrypt-credentials": "tsx scripts/reencrypt-credentials.ts"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -44,6 +44,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
+    "esbuild": "^0.28.2",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",

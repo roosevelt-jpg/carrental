@@ -11,6 +11,8 @@
   --muted: #9a9186;
   --danger: #c45c4a;
   --ok: #7d9a6a;
+  --font-outfit: "Segoe UI", Arial, sans-serif;
+  --font-cormorant: Georgia, "Times New Roman", serif;
 }
 
 @theme inline {
@@ -34,13 +36,13 @@ body {
     radial-gradient(900px 500px at 100% 0%, rgba(61, 48, 32, 0.55), transparent 50%),
     var(--ink);
   color: var(--cream);
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-outfit);
 }
 
 h1,
 h2,
 .font-serif {
-  font-family: var(--font-cormorant), serif;
+  font-family: var(--font-cormorant);
 }
 
 

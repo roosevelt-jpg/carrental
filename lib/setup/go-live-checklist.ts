@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getAppBaseUrl } from "@/lib/env";
+import { getAppBaseUrl, getDataRetentionDays } from "@/lib/env";
 import {
   getCredential,
   isProviderConfigured,
@@ -24,6 +24,10 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     templates,
     openEscalations,
     vehiclesWithPhotos,
+    workerHeartbeat,
+    cms,
+    faqCount,
+    knowledgeCount,
   ] = await Promise.all([
     isProviderConfigured("whatsapp"),
     isProviderConfigured("anthropic"),
@@ -36,6 +40,10 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     prisma.vehicle.count({
       where: { active: true, photoUrls: { isEmpty: false } },
     }),
+    prisma.workerHeartbeat.findUnique({ where: { id: "primary" } }),
+    prisma.cmsSettings.upsert({ where: { id: "primary" }, create: { id: "primary" }, update: {} }),
+    prisma.faqEntry.count({ where: { active: true } }),
+    prisma.knowledgeEntry.count({ where: { active: true } }),
   ]);
 
   const presentTypes = new Set(policyTypes.map((p) => p.policyType));
@@ -55,6 +63,12 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
   const productionHost = "carrental.myflynai.com";
   const baseLooksProduction =
     baseUrl.includes(productionHost) || Boolean(process.env.VERCEL);
+  const workerHealthy = Boolean(
+    workerHeartbeat && Date.now() - workerHeartbeat.updatedAt.getTime() < 90_000,
+  );
+  const retentionDays = getDataRetentionDays();
+  const databaseTls =
+    !baseLooksProduction || /sslmode=(require|verify-ca|verify-full)/i.test(process.env.DATABASE_URL ?? "");
 
   return [
     {
@@ -62,6 +76,18 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
       label: `Public domain set (${productionHost})`,
       done: baseLooksProduction,
       detail: baseUrl,
+    },
+    {
+      id: "https",
+      label: "Public origin uses HTTPS",
+      done: baseUrl.startsWith("https://"),
+      detail: baseUrl,
+    },
+    {
+      id: "database-tls",
+      label: "Production database connection requires TLS",
+      done: databaseTls,
+      detail: databaseTls ? "TLS requirement detected" : "Add sslmode=require (or stronger)",
     },
     {
       id: "storage",
@@ -79,6 +105,24 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
       label: "WhatsApp, Claude, and Stripe all connected",
       done: whatsapp && anthropic && stripe,
       detail: `WA ${whatsapp ? "ok" : "missing"} · Claude ${anthropic ? "ok" : "missing"} · Stripe ${stripe ? "ok" : "missing"}`,
+    },
+    {
+      id: "cms-business",
+      label: "Business profile and contact details completed",
+      done: Boolean(cms.businessName && cms.businessDescription && (cms.phone || cms.whatsappDisplay) && cms.email),
+      detail: `${cms.businessName} · ${cms.city}`,
+    },
+    {
+      id: "cms-agent",
+      label: "AI tone, sales playbook, and handoff wording authored",
+      done: Boolean(cms.agentTone && cms.salesScript && cms.agentHandoffMessage && cms.prohibitedClaims),
+      detail: `${faqCount} FAQs · ${knowledgeCount} knowledge entries`,
+    },
+    {
+      id: "cms-published",
+      label: "Public website content published",
+      done: cms.sitePublished,
+      detail: `CMS revision ${cms.revision}`,
     },
     {
       id: "vehicle",
@@ -120,8 +164,22 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
         : "No Stripe key yet",
     },
     {
+      id: "worker",
+      label: "Background worker is online",
+      done: workerHealthy,
+      detail: workerHeartbeat
+        ? `Last heartbeat ${workerHeartbeat.updatedAt.toISOString()}`
+        : "No worker heartbeat recorded",
+    },
+    {
+      id: "retention",
+      label: "Customer-data retention policy configured",
+      done: retentionDays >= 30,
+      detail: `${retentionDays} days; closed conversations are anonymized automatically`,
+    },
+    {
       id: "sentry",
-      label: "Sentry DSN configured (optional but recommended)",
+      label: "Sentry error monitoring configured",
       done: Boolean(process.env.SENTRY_DSN),
       detail: process.env.SENTRY_DSN ? "SENTRY_DSN set" : "Not set",
     },

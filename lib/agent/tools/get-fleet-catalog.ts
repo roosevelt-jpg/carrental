@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
-import { parseDateOnly, rangesOverlap, toDateString } from "@/lib/agent/dates";
-import { computeQuotePricing } from "@/lib/agent/pricing";
+import { parseDateOnly, rangesOverlap } from "@/lib/agent/dates";
 
 export async function getFleetCatalog(input: {
   start_date: string;

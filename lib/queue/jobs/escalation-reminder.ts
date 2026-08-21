@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCredential } from "@/lib/settings/settings-service";
-import { sendTextMessage } from "@/lib/integrations/whatsapp-client";
+import { sendOwnerOperationalMessage } from "@/lib/integrations/whatsapp-messaging";
 
 export type EscalationReminderJob = {
   escalationId: string;
@@ -14,15 +13,10 @@ export async function processEscalationReminder(data: EscalationReminderJob) {
     return { skipped: true };
   }
 
-  const ownerPhone = await getCredential("whatsapp", "owner_phone_number");
-  if (!ownerPhone) {
-    return { skipped: true, reason: "no_owner_phone" };
-  }
-
-  await sendTextMessage(
-    ownerPhone,
-    `[${escalation.referenceCode}] Reminder: still waiting on your reply.\n\n${escalation.contextSummary}`,
-  );
+  await sendOwnerOperationalMessage({
+    purpose: "OWNER_REMINDER",
+    text: `[${escalation.referenceCode}] Reminder: still waiting on your reply.\n\n${escalation.contextSummary}`,
+  });
   await prisma.escalation.update({
     where: { id: escalation.id },
     data: { remindedAt: new Date() },

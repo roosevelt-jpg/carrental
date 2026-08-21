@@ -14,6 +14,7 @@ function startOfWeek(date = new Date()) {
 }
 
 export default async function DashboardPage() {
+  const metricsSince = startOfWeek();
   const [
     openEscalations,
     activeConversations,
@@ -24,6 +25,9 @@ export default async function DashboardPage() {
     digest,
     checklist,
     templates,
+    processing,
+    outboundMessages,
+    failedMessages,
   ] = await Promise.all([
     prisma.escalation.count({ where: { status: "OPEN" } }),
     prisma.conversation.count({ where: { status: "ACTIVE" } }),
@@ -36,12 +40,41 @@ export default async function DashboardPage() {
     getWeeklyDigest(7),
     getGoLiveChecklist(),
     prisma.messageTemplate.findMany(),
+    prisma.processingMetric.aggregate({
+      where: { createdAt: { gte: metricsSince } },
+      _avg: { latencyMs: true },
+      _count: true,
+    }),
+    prisma.message.count({
+      where: { direction: "OUT", sentAt: { gte: metricsSince } },
+    }),
+    prisma.message.count({
+      where: {
+        direction: "OUT",
+        deliveryStatus: "FAILED",
+        sentAt: { gte: metricsSince },
+      },
+    }),
   ]);
 
   const cards = [
     { label: "Open escalations", value: openEscalations },
     { label: "Active conversations", value: activeConversations },
     { label: "Bookings this week", value: bookingsThisWeek },
+    {
+      label: "Average response",
+      value: processing._avg.latencyMs == null
+        ? "—"
+        : `${(processing._avg.latencyMs / 1000).toFixed(1)}s`,
+    },
+    {
+      label: "Message success",
+      value:
+        outboundMessages === 0
+          ? "—"
+          : `${(((outboundMessages - failedMessages) / outboundMessages) * 100).toFixed(2)}%`,
+    },
+    { label: "Measured turns", value: processing._count },
   ];
 
   const providers = [
@@ -57,7 +90,7 @@ export default async function DashboardPage() {
     <div>
       <p className="text-xs uppercase tracking-[0.22em] text-gold">Overview</p>
       <h1 className="mt-2 font-serif text-4xl">Dashboard</h1>
-      <div className="mt-8 grid grid-cols-3 gap-4">
+      <div className="mt-8 grid gap-4 md:grid-cols-3">
         {cards.map((card) => (
           <div key={card.label} className="rounded-xl border border-line bg-panel p-6">
             <p className="text-xs uppercase tracking-widest text-muted">{card.label}</p>

@@ -1,7 +1,6 @@
 import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/db";
-import { getCredential } from "@/lib/settings/settings-service";
-import { sendTextMessage } from "@/lib/integrations/whatsapp-client";
+import { sendOwnerOperationalMessage } from "@/lib/integrations/whatsapp-messaging";
 import { getEscalationReminderQueue } from "@/lib/queue/queues";
 
 function makeReferenceCode() {
@@ -14,6 +13,7 @@ export async function escalateToOwner(
     reason_code: string;
     conversation_summary: string;
     urgency?: string;
+    suggested_reply?: string;
   },
 ) {
   const rule = await prisma.escalationRule.findUnique({
@@ -67,10 +67,29 @@ export async function escalateToOwner(
     return created;
   });
 
-  const ownerPhone = await getCredential("whatsapp", "owner_phone_number");
-  if (ownerPhone) {
-    const body = `[${referenceCode}] Escalation (${input.reason_code}, ${urgency})\n\n${input.conversation_summary}\n\nReply to this chat including ${referenceCode} with your decision.`;
-    await sendTextMessage(ownerPhone, body);
+  const body = `[${referenceCode}] Escalation (${input.reason_code}, ${urgency})\n\n${input.conversation_summary}${input.suggested_reply ? `\n\nSuggested response: ${input.suggested_reply}` : ""}\n\nReply to this message or include ${referenceCode} with your decision.`;
+  let notificationError: string | undefined;
+  try {
+    const notification = await sendOwnerOperationalMessage({
+      text: body,
+      purpose: "OWNER_ESCALATION",
+    });
+    const ownerNotificationMessageId = (
+      notification.sent as { messages?: Array<{ id?: string }> }
+    ).messages?.[0]?.id;
+    if (ownerNotificationMessageId) {
+      await prisma.escalation.update({
+        where: { id: escalation.id },
+        data: { ownerNotificationMessageId },
+      });
+    }
+  } catch (error) {
+    notificationError = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({
+      msg: "owner_escalation_notification_failed",
+      escalationId: escalation.id,
+      error: notificationError,
+    }));
   }
 
   await getEscalationReminderQueue().add(
@@ -88,6 +107,7 @@ export async function escalateToOwner(
     reference_code: referenceCode,
     customer_message:
       "Let me check on that and get right back to you.",
+    notification_error: notificationError,
   };
 }
 
@@ -127,12 +147,15 @@ export async function resolveEscalationWithOwnerReply(
   return { ok: true as const, escalation: updated };
 }
 
-export async function findOpenEscalationByReference(text: string) {
+export async function findOpenEscalationByReference(text: string, contextMessageId?: string) {
   const match = text.match(/\bREF-\d{4}\b/i);
-  if (!match) return null;
+  if (!match && !contextMessageId) return null;
   return prisma.escalation.findFirst({
     where: {
-      referenceCode: match[0].toUpperCase(),
+      OR: [
+        ...(match ? [{ referenceCode: match[0].toUpperCase() }] : []),
+        ...(contextMessageId ? [{ ownerNotificationMessageId: contextMessageId }] : []),
+      ],
       status: "OPEN",
     },
   });

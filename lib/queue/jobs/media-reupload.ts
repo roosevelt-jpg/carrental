@@ -3,10 +3,29 @@ import { isProviderConfigured } from "@/lib/settings/settings-service";
 import { uploadMediaFromUrl } from "@/lib/integrations/whatsapp-client";
 
 export type MediaReuploadJob = {
-  vehicleId: string;
+  vehicleId?: string;
 };
 
-export async function processMediaReupload(data: MediaReuploadJob) {
+export async function processMediaReupload(
+  data: MediaReuploadJob,
+): Promise<Record<string, unknown>> {
+  if (!data.vehicleId) {
+    const refreshBefore = new Date(Date.now() - 25 * 24 * 60 * 60 * 1000);
+    const vehicles = await prisma.vehicle.findMany({
+      where: {
+        active: true,
+        photoUrls: { isEmpty: false },
+        OR: [{ mediaUploadedAt: null }, { mediaUploadedAt: { lt: refreshBefore } }],
+      },
+      select: { id: true },
+      take: 100,
+    });
+    const results = [];
+    for (const vehicle of vehicles) {
+      results.push(await processMediaReupload({ vehicleId: vehicle.id }));
+    }
+    return { refreshed: results.length };
+  }
   const vehicle = await prisma.vehicle.findUnique({
     where: { id: data.vehicleId },
   });
@@ -35,7 +54,7 @@ export async function processMediaReupload(data: MediaReuploadJob) {
 
   await prisma.vehicle.update({
     where: { id: vehicle.id },
-    data: { mediaIds },
+    data: { mediaIds, mediaUploadedAt: new Date() },
   });
   return { mediaIds };
 }

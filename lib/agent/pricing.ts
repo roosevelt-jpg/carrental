@@ -16,7 +16,10 @@ export function computeQuotePricing(
   const end = parseDateOnly(endDate);
   const nights = daysBetween(start, end);
   const daily = asNumber(vehicle.dailyRate);
-  let subtotal = daily * nights;
+  const weekly = vehicle.weeklyRate == null ? null : asNumber(vehicle.weeklyRate);
+  const fullWeeks = weekly == null ? 0 : Math.floor(nights / 7);
+  const remainingNights = weekly == null ? nights : nights % 7;
+  let subtotal = fullWeeks * (weekly ?? 0) + remainingNights * daily;
 
   const applied: Array<{
     id: string;
@@ -66,6 +69,9 @@ export function computeQuotePricing(
   return {
     nights,
     dailyRate: daily,
+    weeklyRate: weekly,
+    fullWeeks,
+    remainingNights,
     totalPrice,
     depositDue: asNumber(vehicle.depositAmount),
     appliedRules: applied,

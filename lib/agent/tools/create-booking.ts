@@ -1,9 +1,32 @@
 import { prisma } from "@/lib/db";
 import { parseDateOnly } from "@/lib/agent/dates";
 
+export function validatePaidCheckout(input: {
+  expectedSessionId: string | null;
+  actualSessionId: string;
+  expectedAmountMinor: number;
+  actualAmountMinor: number;
+  currency: string;
+  paymentStatus: string;
+}) {
+  if (input.paymentStatus !== "paid") return "Checkout Session is not paid";
+  if (input.expectedSessionId !== input.actualSessionId) {
+    return "Checkout Session does not belong to this quote";
+  }
+  if (input.currency.toLowerCase() !== "aed") return "Unexpected payment currency";
+  if (input.actualAmountMinor !== input.expectedAmountMinor) {
+    return "Paid amount does not match the quote total";
+  }
+  return null;
+}
+
 export async function createBooking(input: {
   quote_id: string;
   payment_reference: string;
+  checkout_session_id: string;
+  amount_total: number;
+  currency: string;
+  payment_status: string;
 }) {
   const quote = await prisma.quote.findUnique({
     where: { id: input.quote_id },
@@ -20,6 +43,19 @@ export async function createBooking(input: {
       status: quote.booking.status,
     };
   }
+  const expectedMinorUnits = Math.round(Number(quote.totalPrice) * 100);
+  const validationError = validatePaidCheckout({
+    expectedSessionId: quote.checkoutSessionId,
+    actualSessionId: input.checkout_session_id,
+    expectedAmountMinor: expectedMinorUnits,
+    actualAmountMinor: input.amount_total,
+    currency: input.currency,
+    paymentStatus: input.payment_status,
+  });
+  if (validationError) return { ok: false, error: validationError };
+  if (!quote.availabilityBlockId) {
+    return { ok: false, error: "Quote no longer has an availability hold" };
+  }
 
   const booking = await prisma.$transaction(async (tx) => {
     const created = await tx.booking.create({
@@ -35,13 +71,15 @@ export async function createBooking(input: {
       where: { id: quote.id },
       data: { status: "CONFIRMED" },
     });
-    await tx.availabilityBlock.create({
-      data: {
-        vehicleId: quote.vehicleId,
-        startDate: quote.startDate,
-        endDate: quote.endDate,
-        reason: "BOOKED",
-      },
+    const hold = await tx.availabilityBlock.findUnique({
+      where: { id: quote.availabilityBlockId! },
+    });
+    if (!hold || hold.reason !== "HOLD") {
+      throw new Error("Availability hold is missing or already consumed");
+    }
+    await tx.availabilityBlock.update({
+      where: { id: hold.id },
+      data: { reason: "BOOKED" },
     });
     await tx.conversationOutcome.upsert({
       where: { conversationId: quote.conversationId },
@@ -53,7 +91,7 @@ export async function createBooking(input: {
       update: { outcome: "BOOKED", taggedBy: "SYSTEM", taggedAt: new Date() },
     });
     return created;
-  });
+  }, { isolationLevel: "Serializable" });
 
   return {
     ok: true,

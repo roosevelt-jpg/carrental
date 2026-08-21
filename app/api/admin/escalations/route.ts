@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { isSession, requireSession } from "@/lib/auth/guards";
-import { resolveEscalationWithOwnerReply } from "@/lib/agent/escalation";
-import { sendTextMessage } from "@/lib/integrations/whatsapp-client";
+import { resolveOwnerDecision } from "@/lib/agent/owner-resolution";
 
 export async function GET(request: NextRequest) {
   const session = await requireSession("STAFF");
@@ -39,28 +38,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "escalationId and ownerReply required" }, { status: 400 });
   }
 
-  const result = await resolveEscalationWithOwnerReply(
-    parsed.data.escalationId,
-    parsed.data.ownerReply,
-  );
+  const result = await resolveOwnerDecision({
+    escalationId: parsed.data.escalationId,
+    ownerReply: parsed.data.ownerReply,
+  });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
-  }
-
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: result.escalation.conversationId },
-    include: { customer: true },
-  });
-  if (conversation) {
-    await sendTextMessage(conversation.customer.whatsappId, parsed.data.ownerReply);
-    await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        direction: "OUT",
-        type: "text",
-        content: parsed.data.ownerReply,
-      },
-    });
   }
 
   return NextResponse.json({ ok: true, escalation: result.escalation });

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { parseDateOnly } from "@/lib/agent/dates";
 import { computeQuotePricing } from "@/lib/agent/pricing";
 import { checkAvailability } from "@/lib/agent/tools/check-availability";
+import { getQuoteHoldMinutes } from "@/lib/env";
+import { getExpireQuotesQueue } from "@/lib/queue/queues";
 
 export async function createQuote(
   conversationId: string,
@@ -36,18 +38,50 @@ export async function createQuote(
     input.end_date,
   );
 
-  // Never trust the model-supplied total — recompute from DB.
-  const quote = await prisma.quote.create({
-    data: {
-      conversationId,
-      vehicleId: vehicle.id,
-      startDate: parseDateOnly(input.start_date),
-      endDate: parseDateOnly(input.end_date),
-      totalPrice: pricing.totalPrice,
-      depositDue: pricing.depositDue,
-      status: "PENDING",
+  const startDate = parseDateOnly(input.start_date);
+  const endDate = parseDateOnly(input.end_date);
+  const holdMinutes = getQuoteHoldMinutes();
+  const expiresAt = new Date(Date.now() + holdMinutes * 60 * 1000);
+
+  // The transaction and database exclusion constraint make the availability
+  // check atomic. Never trust the model-supplied total.
+  const quote = await prisma.$transaction(
+    async (tx) => {
+      const conflict = await tx.availabilityBlock.findFirst({
+        where: {
+          vehicleId: vehicle.id,
+          startDate: { lt: endDate },
+          endDate: { gt: startDate },
+        },
+      });
+      if (conflict) {
+        throw new Error("Vehicle became unavailable while the quote was being created");
+      }
+      const hold = await tx.availabilityBlock.create({
+        data: { vehicleId: vehicle.id, startDate, endDate, reason: "HOLD" },
+      });
+      return tx.quote.create({
+        data: {
+          conversationId,
+          vehicleId: vehicle.id,
+          startDate,
+          endDate,
+          totalPrice: pricing.totalPrice,
+          depositDue: pricing.depositDue,
+          status: "PENDING",
+          expiresAt,
+          availabilityBlockId: hold.id,
+        },
+      });
     },
-  });
+    { isolationLevel: "Serializable" },
+  );
+
+  await getExpireQuotesQueue().add(
+    "expire",
+    {},
+    { delay: holdMinutes * 60 * 1000, jobId: `expire-quote-${quote.id}` },
+  );
 
   return {
     ok: true,
@@ -57,6 +91,7 @@ export async function createQuote(
     end_date: input.end_date,
     total_price: pricing.totalPrice,
     deposit_due: pricing.depositDue,
+    expires_at: quote.expiresAt.toISOString(),
     model_supplied_total: input.total_price,
     note:
       input.total_price !== pricing.totalPrice

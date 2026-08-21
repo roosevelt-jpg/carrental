@@ -2,21 +2,16 @@ import { prisma } from "@/lib/db";
 import { getCredential } from "@/lib/settings/settings-service";
 import { runOrchestrator } from "@/lib/agent/orchestrator";
 import {
-  betweenMessageDelayMs,
-  sleep,
-  typingDelayMs,
-} from "@/lib/agent/pacing";
-import {
   findOpenEscalationByReference,
-  resolveEscalationWithOwnerReply,
 } from "@/lib/agent/escalation";
 import {
   markMessageRead,
-  sendCtaUrlMessage,
-  sendImageByMediaId,
   sendReaction,
-  sendTextMessage,
 } from "@/lib/integrations/whatsapp-client";
+import { deliverAgentReply } from "@/lib/agent/deliver-reply";
+import { resolveOwnerDecision } from "@/lib/agent/owner-resolution";
+import type { AgentReply } from "@/lib/agent/orchestrator";
+import { captureException } from "@/lib/observability/sentry";
 
 export type InboundMessageJob = {
   metaMessageId: string;
@@ -24,15 +19,21 @@ export type InboundMessageJob = {
   timestamp: string;
   type: string;
   text?: string;
+  contextMessageId?: string;
   payload: unknown;
 };
 
 export async function processInboundMessage(data: InboundMessageJob) {
+  const startedAt = Date.now();
   const existing = await prisma.message.findUnique({
     where: { metaMessageId: data.metaMessageId },
   });
   if (existing) {
-    return { skipped: true, reason: "duplicate" };
+    const completed = await prisma.processingMetric.findUnique({
+      where: { inboundMessageId: data.metaMessageId },
+      select: { id: true },
+    });
+    if (completed) return { skipped: true, reason: "duplicate" };
   }
 
   const ownerPhone = await getCredential("whatsapp", "owner_phone_number");
@@ -44,58 +45,66 @@ export async function processInboundMessage(data: InboundMessageJob) {
     normalizedFrom === normalizedOwner &&
     data.text
   ) {
-    const open = await findOpenEscalationByReference(data.text);
+    const open = await findOpenEscalationByReference(data.text, data.contextMessageId);
     if (open) {
       const cleaned =
         data.text.replace(/\bREF-\d{4}\b/gi, "").trim() || data.text;
-      await resolveEscalationWithOwnerReply(open.id, cleaned);
-      const conversation = await prisma.conversation.findUnique({
-        where: { id: open.conversationId },
-        include: { customer: true },
+      await resolveOwnerDecision({
+        escalationId: open.id,
+        ownerReply: cleaned,
+        ownerMetaMessageId: data.metaMessageId,
       });
-      if (conversation) {
-        await sendTextMessage(conversation.customer.whatsappId, cleaned);
-        await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            direction: "OUT",
-            type: "text",
-            content: cleaned,
-          },
-        });
-      }
       return { ownerEscalationResolved: true, escalationId: open.id };
     }
+    console.warn(JSON.stringify({
+      msg: "owner_reply_unmatched",
+      metaMessageId: data.metaMessageId,
+      contextMessageId: data.contextMessageId,
+    }));
+    return { skipped: true, reason: "owner_reply_unmatched" };
   }
 
+  const inboundAt = /^\d+$/.test(data.timestamp)
+    ? new Date(Number(data.timestamp) * 1000)
+    : new Date();
   const customer = await prisma.customer.upsert({
     where: { whatsappId: data.from },
-    create: { whatsappId: data.from },
-    update: {},
+    create: {
+      whatsappId: data.from,
+      optInAt: inboundAt,
+      lastInboundAt: inboundAt,
+    },
+    update: {
+      lastInboundAt: inboundAt,
+    },
   });
 
-  let conversation = await prisma.conversation.findFirst({
-    where: {
-      customerId: customer.id,
-      status: { in: ["ACTIVE", "ESCALATED"] },
-    },
-    orderBy: { lastMessageAt: "desc" },
-  });
+  let conversation = existing
+    ? await prisma.conversation.findUnique({ where: { id: existing.conversationId } })
+    : await prisma.conversation.findFirst({
+        where: {
+          customerId: customer.id,
+          status: { in: ["ACTIVE", "ESCALATED"] },
+        },
+        orderBy: { lastMessageAt: "desc" },
+      });
   if (!conversation) {
     conversation = await prisma.conversation.create({
       data: { customerId: customer.id },
     });
   }
 
-  await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      direction: "IN",
-      type: data.type,
-      content: data.text ?? null,
-      metaMessageId: data.metaMessageId,
-    },
-  });
+  if (!existing) {
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: "IN",
+        type: data.type,
+        content: data.text ?? null,
+        metaMessageId: data.metaMessageId,
+      },
+    });
+  }
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: { lastMessageAt: new Date() },
@@ -113,127 +122,73 @@ export async function processInboundMessage(data: InboundMessageJob) {
     );
   }
 
-  let reply;
-  try {
-    reply = await runOrchestrator(conversation.id);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        msg: "orchestrator_failed",
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
-    const { escalateToOwner } = await import("@/lib/agent/tools/escalate-to-owner");
-    const escalated = await escalateToOwner(conversation.id, {
-      reason_code: "out_of_scope",
-      conversation_summary: `Unhandled exception while processing message ${data.metaMessageId}: ${
-        error instanceof Error ? error.message : "unknown"
-      }`,
-      urgency: "high",
-    });
-    reply = {
-      texts: [escalated.customer_message ?? "Let me check on that and get right back to you."],
-      mediaIds: [] as string[],
-      escalated: true,
-      paymentLinks: [],
-    };
-  }
-
-  for (const mediaId of reply.mediaIds) {
+  let reply = existing?.agentReply as AgentReply | null | undefined;
+  let orchestrationSucceeded = true;
+  if (!reply) {
     try {
-      await sleep(1000);
-      const sent = await sendImageByMediaId(data.from, mediaId);
-      const metaId =
-        (sent as { messages?: Array<{ id?: string }> }).messages?.[0]?.id ?? null;
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          direction: "OUT",
-          type: "image",
-          mediaIds: [mediaId],
-          metaMessageId: metaId,
-        },
-      });
+      reply = await runOrchestrator(conversation.id);
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          msg: "photo_send_failed",
-          mediaId,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    }
-  }
-
-  for (let i = 0; i < reply.texts.length; i++) {
-    const text = reply.texts[i];
-    await sleep(typingDelayMs(text));
-    if (i > 0) {
-      await sleep(betweenMessageDelayMs());
-    }
-    const sent = await sendTextMessage(data.from, text);
-    const metaId =
-      (sent as { messages?: Array<{ id?: string }> }).messages?.[0]?.id ?? null;
-    await prisma.message.create({
-      data: {
+      orchestrationSucceeded = false;
+      captureException(error, {
+        stage: "orchestrator",
         conversationId: conversation.id,
-        direction: "OUT",
-        type: "text",
-        content: text,
-        metaMessageId: metaId,
-      },
-    });
-  }
-
-  for (const link of reply.paymentLinks) {
-    await sleep(betweenMessageDelayMs());
-    const bodyText = `Secure payment for ${link.amount} ${link.currency}. Tap below to pay.`;
-    try {
-      const sent = await sendCtaUrlMessage({
-        to: data.from,
-        bodyText,
-        displayText: "Pay now",
-        url: link.url,
-      });
-      const metaId =
-        (sent as { messages?: Array<{ id?: string }> }).messages?.[0]?.id ?? null;
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          direction: "OUT",
-          type: "interactive",
-          content: `${bodyText}\n${link.url}`,
-          metaMessageId: metaId,
-        },
-      });
-    } catch (error) {
-      // Fallback to plain URL if interactive CTA is unavailable for the WABA.
-      const sent = await sendTextMessage(data.from, `${bodyText}\n${link.url}`);
-      const metaId =
-        (sent as { messages?: Array<{ id?: string }> }).messages?.[0]?.id ?? null;
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          direction: "OUT",
-          type: "text",
-          content: `${bodyText}\n${link.url}`,
-          metaMessageId: metaId,
-        },
+        inboundMessageId: data.metaMessageId,
       });
       console.error(
         JSON.stringify({
-          msg: "cta_send_failed_fallback_text",
+          msg: "orchestrator_failed",
           error: error instanceof Error ? error.message : String(error),
         }),
       );
+      const { escalateToOwner } = await import("@/lib/agent/tools/escalate-to-owner");
+      const escalated = await escalateToOwner(conversation.id, {
+        reason_code: "out_of_scope",
+        conversation_summary: `Unhandled exception while processing message ${data.metaMessageId}: ${
+          error instanceof Error ? error.message : "unknown"
+        }`,
+        urgency: "high",
+      });
+      reply = {
+        texts: [escalated.customer_message ?? "Let me check on that and get right back to you."],
+        mediaIds: [] as string[],
+        escalated: true,
+        paymentLinks: [],
+        toolRounds: 0,
+      };
     }
+    await prisma.message.update({
+      where: { metaMessageId: data.metaMessageId },
+      data: { agentReply: JSON.parse(JSON.stringify(reply)) },
+    });
   }
+
+  const delivered = await deliverAgentReply({
+    conversationId: conversation.id,
+    to: data.from,
+    reply,
+    typingMessageId: data.metaMessageId,
+    sourceMessageId: data.metaMessageId,
+  });
+
+  await prisma.processingMetric.upsert({
+    where: { inboundMessageId: data.metaMessageId },
+    create: {
+      conversationId: conversation.id,
+      inboundMessageId: data.metaMessageId,
+      latencyMs: Date.now() - startedAt,
+      toolRounds: reply.toolRounds,
+      escalated: reply.escalated,
+      succeeded: orchestrationSucceeded,
+      errorCode: orchestrationSucceeded ? null : "orchestrator_failed",
+    },
+    update: {},
+  });
 
   return {
     conversationId: conversation.id,
-    replies: reply.texts.length,
-    photos: reply.mediaIds.length,
-    paymentLinks: reply.paymentLinks.length,
+    replies: delivered.sentTexts,
+    photos: delivered.sentPhotos,
+    paymentLinks: delivered.paymentLinks,
     escalated: reply.escalated,
   };
 }

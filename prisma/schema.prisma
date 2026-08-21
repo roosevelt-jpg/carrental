@@ -32,19 +32,20 @@ model IntegrationCredential {
 }
 
 model Vehicle {
-  id            String   @id @default(cuid())
-  make          String
-  model         String
-  category      String
-  year          Int
-  dailyRate     Decimal  @db.Decimal(12, 2)
-  weeklyRate    Decimal? @db.Decimal(12, 2)
-  depositAmount Decimal  @db.Decimal(12, 2)
-  mediaIds      String[]
-  photoUrls     String[]
-  active        Boolean  @default(true)
-  attributes    Json?
-  updatedAt     DateTime @updatedAt
+  id              String    @id @default(cuid())
+  make            String
+  model           String
+  category        String
+  year            Int
+  dailyRate       Decimal   @db.Decimal(12, 2)
+  weeklyRate      Decimal?  @db.Decimal(12, 2)
+  depositAmount   Decimal   @db.Decimal(12, 2)
+  mediaIds        String[]
+  photoUrls       String[]
+  active          Boolean   @default(true)
+  attributes      Json?
+  updatedAt       DateTime  @updatedAt
+  mediaUploadedAt DateTime?
 
   pricingRules       PricingRule[]
   availabilityBlocks AvailabilityBlock[]
@@ -69,12 +70,13 @@ enum PricingRuleType {
 }
 
 model AvailabilityBlock {
-  id        String              @id @default(cuid())
+  id        String             @id @default(cuid())
   vehicleId String
-  vehicle   Vehicle             @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle            @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   startDate DateTime
   endDate   DateTime
   reason    AvailabilityReason
+  quote     Quote?
 }
 
 enum AvailabilityReason {
@@ -98,11 +100,14 @@ enum PolicyType {
 }
 
 model Customer {
-  id           String   @id @default(cuid())
-  whatsappId   String   @unique
-  name         String?
-  verifiedDocs Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  id            String    @id @default(cuid())
+  whatsappId    String    @unique
+  name          String?
+  verifiedDocs  Boolean   @default(false)
+  optInAt       DateTime?
+  lastInboundAt DateTime?
+  anonymizedAt  DateTime?
+  createdAt     DateTime  @default(now())
 
   conversations Conversation[]
   bookings      Booking[]
@@ -117,10 +122,11 @@ model Conversation {
   lastMessageAt DateTime           @default(now())
   summary       String?
 
-  messages    Message[]
-  quotes      Quote[]
-  escalations Escalation[]
-  outcome     ConversationOutcome?
+  messages          Message[]
+  quotes            Quote[]
+  escalations       Escalation[]
+  outcome           ConversationOutcome?
+  processingMetrics ProcessingMetric[]
 
   @@index([status, lastMessageAt])
 }
@@ -132,15 +138,32 @@ enum ConversationStatus {
 }
 
 model Message {
-  id             String           @id @default(cuid())
-  conversationId String
-  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  direction      MessageDirection
-  type           String
-  content        String?
-  mediaIds       String[]
-  sentAt         DateTime         @default(now())
-  metaMessageId  String?          @unique
+  id              String                @id @default(cuid())
+  conversationId  String
+  conversation    Conversation          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction       MessageDirection
+  type            String
+  content         String?
+  mediaIds        String[]
+  sentAt          DateTime              @default(now())
+  metaMessageId   String?               @unique
+  deliveryStatus  MessageDeliveryStatus @default(RECEIVED)
+  statusUpdatedAt DateTime              @default(now())
+  failureCode     String?
+  agentReply      Json?
+  sourceMessageId String?
+  sequence        Int?
+
+  @@unique([sourceMessageId, sequence])
+}
+
+enum MessageDeliveryStatus {
+  RECEIVED
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
 
 enum MessageDirection {
@@ -149,17 +172,23 @@ enum MessageDirection {
 }
 
 model Quote {
-  id             String      @id @default(cuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
-  vehicleId      String
-  vehicle        Vehicle     @relation(fields: [vehicleId], references: [id])
-  startDate      DateTime
-  endDate        DateTime
-  totalPrice     Decimal     @db.Decimal(12, 2)
-  depositDue     Decimal     @db.Decimal(12, 2)
-  status         QuoteStatus @default(PENDING)
-  createdAt      DateTime    @default(now())
+  id                  String             @id @default(cuid())
+  conversationId      String
+  conversation        Conversation       @relation(fields: [conversationId], references: [id])
+  vehicleId           String
+  vehicle             Vehicle            @relation(fields: [vehicleId], references: [id])
+  startDate           DateTime
+  endDate             DateTime
+  totalPrice          Decimal            @db.Decimal(12, 2)
+  depositDue          Decimal            @db.Decimal(12, 2)
+  status              QuoteStatus        @default(PENDING)
+  createdAt           DateTime           @default(now())
+  expiresAt           DateTime
+  checkoutSessionId   String?            @unique
+  checkoutUrl         String?
+  paymentExpiresAt    DateTime?
+  availabilityBlockId String?            @unique
+  availabilityBlock   AvailabilityBlock? @relation(fields: [availabilityBlockId], references: [id], onDelete: SetNull)
 
   booking Booking?
 }
@@ -171,14 +200,16 @@ enum QuoteStatus {
 }
 
 model Booking {
-  id               String        @id @default(cuid())
-  quoteId          String        @unique
-  quote            Quote         @relation(fields: [quoteId], references: [id])
-  customerId       String
-  customer         Customer      @relation(fields: [customerId], references: [id])
-  paymentReference String?
-  status           BookingStatus @default(PENDING)
-  confirmedAt      DateTime?
+  id                 String        @id @default(cuid())
+  quoteId            String        @unique
+  quote              Quote         @relation(fields: [quoteId], references: [id])
+  customerId         String
+  customer           Customer      @relation(fields: [customerId], references: [id])
+  paymentReference   String?
+  status             BookingStatus @default(PENDING)
+  confirmedAt        DateTime?
+  customerNotifiedAt DateTime?
+  ownerNotifiedAt    DateTime?
 }
 
 enum BookingStatus {
@@ -188,20 +219,61 @@ enum BookingStatus {
 }
 
 model Escalation {
-  id             String           @id @default(cuid())
-  conversationId String
-  conversation   Conversation     @relation(fields: [conversationId], references: [id])
-  reasonCode     String
-  contextSummary String
-  status         EscalationStatus @default(OPEN)
-  ownerReply     String?
-  referenceCode  String           @unique
-  urgency        String           @default("normal")
-  createdAt      DateTime         @default(now())
-  resolvedAt     DateTime?
-  remindedAt     DateTime?
+  id                         String           @id @default(cuid())
+  conversationId             String
+  conversation               Conversation     @relation(fields: [conversationId], references: [id])
+  reasonCode                 String
+  contextSummary             String
+  status                     EscalationStatus @default(OPEN)
+  ownerReply                 String?
+  referenceCode              String           @unique
+  urgency                    String           @default("normal")
+  createdAt                  DateTime         @default(now())
+  resolvedAt                 DateTime?
+  remindedAt                 DateTime?
+  ownerNotificationMessageId String?          @unique
 
   @@index([status, createdAt])
+}
+
+model ProcessingMetric {
+  id               String       @id @default(cuid())
+  conversationId   String
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  inboundMessageId String       @unique
+  latencyMs        Int
+  toolRounds       Int          @default(0)
+  escalated        Boolean      @default(false)
+  succeeded        Boolean
+  errorCode        String?
+  createdAt        DateTime     @default(now())
+
+  @@index([createdAt])
+  @@index([succeeded, createdAt])
+}
+
+model ProcessedWebhookEvent {
+  id          String             @id @default(cuid())
+  provider    String
+  eventId     String
+  status      WebhookEventStatus @default(PROCESSING)
+  processedAt DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@unique([provider, eventId])
+  @@index([provider, status, createdAt])
+}
+
+model WorkerHeartbeat {
+  id        String   @id
+  startedAt DateTime
+  updatedAt DateTime @updatedAt
+  metadata  Json?
+}
+
+enum WebhookEventStatus {
+  PROCESSING
+  COMPLETE
 }
 
 enum EscalationStatus {
@@ -219,12 +291,12 @@ model EscalationRule {
 }
 
 model ConversationOutcome {
-  id             String     @id @default(cuid())
-  conversationId String     @unique
+  id             String       @id @default(cuid())
+  conversationId String       @unique
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   outcome        OutcomeType
-  taggedBy       TaggedBy   @default(SYSTEM)
-  taggedAt       DateTime   @default(now())
+  taggedBy       TaggedBy     @default(SYSTEM)
+  taggedAt       DateTime     @default(now())
 }
 
 enum OutcomeType {
@@ -239,37 +311,66 @@ enum TaggedBy {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
+  id          String   @id @default(cuid())
   actorUserId String?
-  actorEmail String?
-  entityType String
-  entityId   String?
-  action     String
-  summary    String
-  beforeJson Json?
-  afterJson  Json?
-  createdAt  DateTime @default(now())
+  actorEmail  String?
+  entityType  String
+  entityId    String?
+  action      String
+  summary     String
+  beforeJson  Json?
+  afterJson   Json?
+  createdAt   DateTime @default(now())
 
   @@index([entityType, createdAt])
   @@index([createdAt])
 }
 
 model MessageTemplate {
-  id           String               @id @default(cuid())
-  name         String               @unique
-  purpose      MessageTemplatePurpose
-  language     String               @default("en")
-  status       MessageTemplateStatus @default(DRAFT)
+  id               String                    @id @default(cuid())
+  name             String                    @unique
+  purpose          MessageTemplatePurpose
+  language         String                    @default("en")
+  category         MessageTemplateCategory   @default(UTILITY)
+  status           MessageTemplateStatus     @default(DRAFT)
   metaTemplateName String?
-  notes        String?
-  updatedAt    DateTime             @updatedAt
-  createdAt    DateTime             @default(now())
+  metaTemplateId   String?                   @unique
+  bodyText         String                    @default("")
+  bodyVariables    String[]
+  sampleValues     String[]
+  headerText       String?
+  footerText       String?
+  buttonType       MessageTemplateButtonType @default(NONE)
+  buttonText       String?
+  buttonValue      String?
+  rejectionReason  String?
+  lastSubmittedAt  DateTime?
+  notes            String?
+  updatedAt        DateTime                  @updatedAt
+  createdAt        DateTime                  @default(now())
+}
+
+enum MessageTemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+enum MessageTemplateButtonType {
+  NONE
+  QUICK_REPLY
+  URL
+  PHONE_NUMBER
 }
 
 enum MessageTemplatePurpose {
   BOOKING_CONFIRMATION
   PAYMENT_REMINDER
   REENGAGEMENT
+  OWNER_ESCALATION
+  OWNER_REMINDER
+  WEEKLY_DIGEST
+  OWNER_BOOKING
 }
 
 enum MessageTemplateStatus {
@@ -277,4 +378,93 @@ enum MessageTemplateStatus {
   SUBMITTED
   APPROVED
   REJECTED
+}
+
+model CmsSettings {
+  id                  String        @id @default("primary")
+  businessName        String        @default("Atelier Fleet")
+  legalName           String?
+  tagline             String        @default("Exceptional cars. Effortless journeys.")
+  businessDescription String        @default("A curated luxury car rental experience in Dubai.")
+  phone               String?
+  email               String?
+  whatsappDisplay     String?
+  address             String?
+  city                String        @default("Dubai")
+  country             String        @default("United Arab Emirates")
+  timezone            String        @default("Asia/Dubai")
+  currency            String        @default("AED")
+  logoUrl             String?
+  heroImageUrl        String?
+  primaryColor        String        @default("#c6a36a")
+  accentColor         String        @default("#e0c48a")
+  backgroundColor     String        @default("#100e0c")
+  seoTitle            String        @default("Atelier Fleet | Luxury Car Rental Dubai")
+  seoDescription      String        @default("Reserve a curated luxury vehicle in Dubai with personal WhatsApp assistance.")
+  heroEyebrow         String        @default("Luxury car rental · Dubai")
+  heroTitle           String        @default("The right car, arranged around you.")
+  heroSubtitle        String        @default("Explore our fleet and speak with our concierge on WhatsApp for availability, pricing, and a secure reservation.")
+  heroPrimaryLabel    String        @default("View the fleet")
+  heroPrimaryHref     String        @default("#fleet")
+  heroSecondaryLabel  String        @default("Chat on WhatsApp")
+  heroSecondaryHref   String        @default("#contact")
+  aboutTitle          String        @default("A considered rental experience")
+  aboutBody           String        @default("From first enquiry to handover, every detail is handled with clarity, discretion, and local expertise.")
+  fleetTitle          String        @default("Curated fleet")
+  fleetBody           String        @default("Live rates and vehicle details are managed directly by our team.")
+  faqTitle            String        @default("Frequently asked questions")
+  contactTitle        String        @default("Plan your drive")
+  contactBody         String        @default("Tell us your dates and preferred vehicle. Our WhatsApp concierge will confirm live availability and pricing.")
+  footerText          String        @default("Luxury car rental in Dubai.")
+  agentTone           String        @default("Warm, discreet, concise, confident, and hospitality-led. Never pressure the customer.")
+  salesScript         String        @default("Understand dates, vehicle preference, delivery needs, and eligibility. Present only verified options, answer objections honestly, then offer a secure quote and payment link.")
+  agentGreeting       String        @default("Welcome. How may I help with your Dubai car rental?")
+  agentHandoffMessage String        @default("I’m bringing in a member of our team to confirm this for you.")
+  prohibitedClaims    String        @default("Never promise unverified availability, discounts, eligibility exceptions, refunds, delivery times, or policy exceptions.")
+  sitePublished       Boolean       @default(false)
+  publishedSnapshot   Json?
+  revision            Int           @default(1)
+  publishedAt         DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  revisions           CmsRevision[]
+}
+
+model CmsRevision {
+  id            String      @id @default(cuid())
+  cmsSettingsId String
+  cmsSettings   CmsSettings @relation(fields: [cmsSettingsId], references: [id], onDelete: Cascade)
+  revision      Int
+  snapshot      Json
+  actorEmail    String?
+  createdAt     DateTime    @default(now())
+
+  @@unique([cmsSettingsId, revision])
+  @@index([cmsSettingsId, createdAt])
+}
+
+model FaqEntry {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  category  String   @default("General")
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+model KnowledgeEntry {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  category  String   @default("General")
+  keywords  String[]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, category])
 }

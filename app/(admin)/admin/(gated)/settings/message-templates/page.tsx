@@ -10,19 +10,11 @@ export default async function MessageTemplatesPage() {
     <div>
       <h1 className="font-serif text-4xl">Message templates</h1>
       <p className="mt-3 max-w-2xl text-muted">
-        Track Meta approval for outside-24h messaging. Submit templates in Meta Business Manager,
-        then mark status here. The agent will not invent template names.
+        Edit notification wording and submit directly to Meta for review. Approval status is synced
+        from Meta; approved content is used automatically outside the 24-hour service window.
       </p>
       <MessageTemplatesManager
-        templates={templates.map((t) => ({
-          id: t.id,
-          name: t.name,
-          purpose: t.purpose,
-          language: t.language,
-          status: t.status,
-          metaTemplateName: t.metaTemplateName,
-          notes: t.notes,
-        }))}
+        templates={JSON.parse(JSON.stringify(templates))}
       />
     </div>
   );

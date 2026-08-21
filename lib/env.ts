@@ -56,3 +56,19 @@ export function getDatabaseUrl(): string {
 export function getRedisUrl(): string {
   return required("REDIS_URL");
 }
+
+export function getQuoteHoldMinutes(): number {
+  const value = Number(process.env.QUOTE_HOLD_MINUTES ?? "60");
+  if (!Number.isInteger(value) || value < 30 || value > 1440) {
+    throw new Error("QUOTE_HOLD_MINUTES must be an integer between 30 and 1440");
+  }
+  return value;
+}
+
+export function getDataRetentionDays(): number {
+  const value = Number(process.env.DATA_RETENTION_DAYS ?? "365");
+  if (!Number.isInteger(value) || value < 30) {
+    throw new Error("DATA_RETENTION_DAYS must be an integer of at least 30");
+  }
+  return value;
+}

@@ -18,6 +18,7 @@ function vehicle(overrides: Partial<Vehicle> = {}): Vehicle {
     photoUrls: [],
     active: true,
     attributes: null,
+    mediaUploadedAt: null,
     updatedAt: new Date(),
     ...overrides,
   };
@@ -87,5 +88,17 @@ describe("computeQuotePricing", () => {
     const long = computeQuotePricing(vehicle(), [duration], "2026-09-01", "2026-09-09");
     expect(short.appliedRules).toHaveLength(0);
     expect(long.totalPrice).toBe(7200);
+  });
+
+  it("uses weekly pricing for full weeks and daily pricing for the remainder", () => {
+    const result = computeQuotePricing(
+      vehicle({ weeklyRate: new Decimal(6000) }),
+      [],
+      "2026-09-01",
+      "2026-09-10",
+    );
+    expect(result.totalPrice).toBe(8000);
+    expect(result.fullWeeks).toBe(1);
+    expect(result.remainingNights).toBe(2);
   });
 });

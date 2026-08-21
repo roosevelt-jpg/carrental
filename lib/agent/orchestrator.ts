@@ -9,12 +9,20 @@ import { matchEscalationHint } from "@/lib/agent/escalation-hint";
 
 const HISTORY_LIMIT = 20;
 const MAX_TOOL_ROUNDS = 8;
+const HARD_ESCALATION_REASONS = new Set([
+  "refund_request",
+  "eligibility_exception",
+  "fee_dispute",
+  "repeated_misunderstanding",
+  "explicit_human_request",
+]);
 
 export type AgentReply = {
   texts: string[];
   mediaIds: string[];
   escalated: boolean;
   paymentLinks: Array<{ url: string; amount: number; currency: string }>;
+  toolRounds: number;
 };
 
 export async function runOrchestrator(conversationId: string): Promise<AgentReply> {
@@ -72,11 +80,27 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     });
   }
 
+  if (hint && HARD_ESCALATION_REASONS.has(hint)) {
+    const escalation = await escalateToOwner(conversationId, {
+      reason_code: hint,
+      conversation_summary: latestInbound?.content ?? `Customer request matched ${hint}`,
+      urgency: hint === "explicit_human_request" ? "high" : "normal",
+    });
+    return {
+      texts: [escalation.customer_message ?? "Let me check on that and get right back to you."],
+      mediaIds: [],
+      escalated: true,
+      paymentLinks: [],
+      toolRounds: 0,
+    };
+  }
+
   const client = await getClaudeClient();
   const model = await getClaudeModelId();
   const mediaIds: string[] = [];
   const paymentLinks: AgentReply["paymentLinks"] = [];
   let escalated = false;
+  let toolRounds = 0;
 
   let response = await client.messages.create({
     model,
@@ -104,6 +128,7 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     const toolUses = response.content.filter(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
     );
+    toolRounds += 1;
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUses) {
@@ -180,6 +205,7 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
       mediaIds,
       escalated,
       paymentLinks,
+      toolRounds,
     };
   }
 
@@ -212,5 +238,6 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     mediaIds: [...new Set(mediaIds)],
     escalated,
     paymentLinks,
+    toolRounds,
   };
 }

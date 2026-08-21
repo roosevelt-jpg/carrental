@@ -16,6 +16,12 @@ export function matchEscalationHint(text: string): string | null {
     return "price_negotiation";
   }
   if (/\b(charged|fee dispute|overcharged|extra fee)\b/.test(lower)) return "fee_dispute";
+  if (/\b(under ?2[135]|too young|unsupported licen[cs]e|licen[cs]e not accepted)\b/.test(lower)) {
+    return "eligibility_exception";
+  }
+  if (/\b(you (still )?do not understand|you don't understand|that's not what i (asked|meant))\b/.test(lower)) {
+    return "repeated_misunderstanding";
+  }
   if (/\b(visa|passport renewal|immigration)\b/.test(lower)) return "out_of_scope";
   return null;
 }

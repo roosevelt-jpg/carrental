@@ -25,7 +25,13 @@ export const PROVIDER_KEYS = {
 } as const;
 
 export const REQUIRED_KEYS_FOR_CONFIGURED = {
-  whatsapp: ["access_token", "phone_number_id", "app_secret", "webhook_verify_token"],
+  whatsapp: [
+    "access_token",
+    "phone_number_id",
+    "waba_id",
+    "app_secret",
+    "webhook_verify_token",
+  ],
   anthropic: ["api_key"],
   stripe: ["secret_key", "webhook_signing_secret"],
 } as const;

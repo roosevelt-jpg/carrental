@@ -6,6 +6,9 @@ export const QUEUE_NAMES = {
   escalationReminder: "escalation-reminder",
   mediaReupload: "media-reupload",
   markDropped: "mark-dropped-conversations",
+  expireQuotes: "expire-quotes",
+  retention: "retention-sweep",
+  weeklyDigest: "weekly-digest",
 } as const;
 
 const defaultJobOptions = {
@@ -19,6 +22,9 @@ let inboundQueue: Queue | null = null;
 let escalationQueue: Queue | null = null;
 let mediaQueue: Queue | null = null;
 let markDroppedQueue: Queue | null = null;
+let expireQuotesQueue: Queue | null = null;
+let retentionQueue: Queue | null = null;
+let weeklyDigestQueue: Queue | null = null;
 
 export function getInboundMessageQueue() {
   inboundQueue ??= new Queue(QUEUE_NAMES.inboundMessage, {
@@ -52,14 +58,57 @@ export function getMarkDroppedQueue() {
   return markDroppedQueue;
 }
 
+export function getExpireQuotesQueue() {
+  expireQuotesQueue ??= new Queue(QUEUE_NAMES.expireQuotes, {
+    connection: getRedisConnection(),
+    defaultJobOptions,
+  });
+  return expireQuotesQueue;
+}
+
+export function getRetentionQueue() {
+  retentionQueue ??= new Queue(QUEUE_NAMES.retention, {
+    connection: getRedisConnection(),
+    defaultJobOptions,
+  });
+  return retentionQueue;
+}
+
+export function getWeeklyDigestQueue() {
+  weeklyDigestQueue ??= new Queue(QUEUE_NAMES.weeklyDigest, {
+    connection: getRedisConnection(),
+    defaultJobOptions,
+  });
+  return weeklyDigestQueue;
+}
+
 export async function ensureRecurringJobs() {
-  const queue = getMarkDroppedQueue();
-  await queue.upsertJobScheduler(
+  await getMarkDroppedQueue().upsertJobScheduler(
     "mark-dropped-hourly",
     { every: 60 * 60 * 1000 },
     {
       name: "sweep",
       data: { idleHours: 72 },
     },
+  );
+  await getExpireQuotesQueue().upsertJobScheduler(
+    "expire-quotes-five-minutes",
+    { every: 5 * 60 * 1000 },
+    { name: "sweep", data: {} },
+  );
+  await getRetentionQueue().upsertJobScheduler(
+    "retention-daily",
+    { pattern: "0 3 * * *" },
+    { name: "sweep", data: {} },
+  );
+  await getWeeklyDigestQueue().upsertJobScheduler(
+    "weekly-digest-monday",
+    { pattern: "0 9 * * 1", tz: "Asia/Dubai" },
+    { name: "send", data: { days: 7 } },
+  );
+  await getMediaReuploadQueue().upsertJobScheduler(
+    "refresh-whatsapp-media-daily",
+    { pattern: "30 2 * * *", tz: "Asia/Dubai" },
+    { name: "refresh", data: {} },
   );
 }
