@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Atelier Fleet — WhatsApp AI sales agent
 
-## Getting Started
+Single-tenant admin + webhook service for a luxury car rental business. Integration keys are entered in `/admin/settings/integrations`, encrypted, and stored in Postgres. There is no demo fleet and no mocked WhatsApp / Claude / Stripe responses.
 
-First, run the development server:
+## Bootstrap env
+
+Copy `.env.example` to `.env`, then generate secrets:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run generate-keys
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Paste `ENCRYPTION_KEY` and `SESSION_SECRET` into `.env`. Leave WhatsApp, Anthropic, and Stripe keys out of `.env` — they belong in the admin UI.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Postgres for local Docker is on **port 5433** (to avoid clashing with a local Postgres on 5432).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Local run
 
-## Learn More
+```bash
+docker compose up postgres redis -d
+npx prisma migrate deploy
+npx prisma db seed
+npm run dev
+npm run worker
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open http://localhost:3000/admin
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## When you are ready to add keys + test
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Complete `/admin/setup` or `/admin/settings/integrations` (WhatsApp, Claude, Stripe).
+2. Add fleet, policies, photos, availability.
+3. Mark Meta message templates on `/admin/settings/message-templates`.
+4. Expose the app publicly (ngrok / deploy) and set `APP_BASE_URL`.
+5. In Meta, set webhook to `{APP_BASE_URL}/api/webhooks/whatsapp`.
+6. In Stripe, set webhook to `{APP_BASE_URL}/api/webhooks/stripe`.
+7. Walk `/admin/go-live` and run a real UAT conversation.
 
-## Deploy on Vercel
+Health check: `GET /api/health`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Useful admin routes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `/admin/go-live` — launch checklist
+- `/admin/digest` — 7-day patterns
+- `/admin/settings/message-templates` — Meta template approval tracking
+- `/admin/settings/audit-log` — change history
+- `/admin/settings/fine-tuning` — readiness gates (human-curated only)
+- `/admin/fleet/[id]` — edit vehicle, photos, availability
+
+## Ops scripts
+
+```bash
+npm test
+npm run reencrypt-credentials   # OLD_ENCRYPTION_KEY + ENCRYPTION_KEY required
+```
+
+## Full stack
+
+```bash
+docker compose up --build
+```

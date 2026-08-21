@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone",
+  serverExternalPackages: ["@node-rs/argon2", "bullmq", "ioredis", "@sentry/node"],
 };
 
 export default nextConfig;
