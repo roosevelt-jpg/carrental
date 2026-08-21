@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Standalone is for Docker. On Vercel it breaks the platform build
+  // (ENOENT next-server.js.nft.json) and leaves the domain with no Ready deploy.
+  ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
   serverExternalPackages: [
     "@node-rs/argon2",
     "bullmq",
