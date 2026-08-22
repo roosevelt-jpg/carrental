@@ -61,7 +61,7 @@ export async function recoverRecentInboundMedia() {
       type: { in: ["image", "video", "audio", "document", "sticker"] },
       metaMessageId: { not: null },
       sentAt: { gte: since },
-      attachments: { none: {} },
+      attachments: { none: { status: "READY" } },
     },
     select: { metaMessageId: true },
     take: 100,

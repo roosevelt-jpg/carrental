@@ -59,7 +59,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
       select: { id: true },
     })
     : null;
-  if (existing && completed && (!data.media || existing.attachments.length > 0)) {
+  if (existing && completed && (!data.media || existing.attachments.some((item) => item.status === "READY"))) {
     return { skipped: true, reason: "duplicate" };
   }
 
@@ -136,7 +136,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
     });
     storedMessageId = createdMessage.id;
   }
-  if (data.media && (!existing || existing.attachments.length === 0)) {
+  if (data.media && (!existing || !existing.attachments.some((item) => item.status === "READY"))) {
     await persistInboundAttachment(storedMessageId, data);
   }
   if (existing && completed) {
@@ -290,6 +290,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
 
 async function persistInboundAttachment(messageId: string, data: InboundMessageJob) {
   if (!data.media) return;
+  await prisma.messageAttachment.deleteMany({ where: { messageId, status: { not: "READY" } } });
   const maxBytes = MEDIA_LIMITS[data.media.mediaType];
   if (!maxBytes) {
     await prisma.messageAttachment.create({
