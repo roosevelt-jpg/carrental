@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getDataRetentionDays } from "@/lib/settings/business-controls";
 import { encryptPii, piiLookupHash } from "@/lib/privacy/pii";
+import { deleteStoredObject } from "@/lib/storage/object-storage";
 
 export async function processRetentionSweep() {
   const retentionDays = await getDataRetentionDays();
@@ -18,12 +19,22 @@ export async function processRetentionSweep() {
   });
 
   for (const customer of customers) {
+    const storedAttachments = await prisma.messageAttachment.findMany({
+      where: { message: { conversation: { customerId: customer.id } } },
+      select: { storageKey: true },
+    });
+    for (const attachment of storedAttachments) {
+      if (attachment.storageKey) await deleteStoredObject(attachment.storageKey);
+    }
     await prisma.$transaction(async (tx) => {
       const conversations = await tx.conversation.findMany({
         where: { customerId: customer.id },
         select: { id: true },
       });
       const conversationIds = conversations.map((item) => item.id);
+      await tx.messageAttachment.deleteMany({
+        where: { message: { conversationId: { in: conversationIds } } },
+      });
       await tx.message.updateMany({
         where: { conversationId: { in: conversationIds } },
         data: { content: null, mediaIds: [] },

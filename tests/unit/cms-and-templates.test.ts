@@ -9,7 +9,7 @@ import {
   buildMetaTemplatePayload,
   normalizeMetaTemplateName,
 } from "@/lib/integrations/meta-template-publisher";
-import { extractWebhookData } from "@/app/api/webhooks/whatsapp/route";
+import { extractWebhookData, mediaFromMessage } from "@/app/api/webhooks/whatsapp/route";
 
 describe("CMS content templates", () => {
   it("extracts named variables once and renders business content", () => {
@@ -19,6 +19,27 @@ describe("CMS content templates", () => {
       .toBe("Hello Atelier — booking BK-1 for Atelier.");
     expect(toMetaNumberedTemplate(text, ["business_name", "booking_id"]))
       .toBe("Hello {{1}} — booking {{2}} for {{1}}.");
+  });
+
+  it("extracts inbound image metadata and caption", () => {
+    const result = extractWebhookData({
+      entry: [{ changes: [{ value: { messages: [{
+        id: "wamid.image",
+        from: "15550001111",
+        timestamp: "1700000000",
+        type: "image",
+        image: { id: "media-123", mime_type: "image/jpeg", sha256: "digest", caption: "Front view" },
+      }] } }] }],
+    });
+    expect(result.messages).toHaveLength(1);
+    expect(mediaFromMessage(result.messages[0])).toEqual({
+      id: "media-123",
+      mediaType: "image",
+      mimeType: "image/jpeg",
+      sha256: "digest",
+      caption: "Front view",
+      fileName: undefined,
+    });
   });
 
   it("builds a valid Meta submission payload with review samples", () => {

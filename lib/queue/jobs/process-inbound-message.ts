@@ -7,6 +7,7 @@ import {
 import {
   markMessageRead,
   sendReaction,
+  downloadWhatsAppMedia,
 } from "@/lib/integrations/whatsapp-client";
 import { deliverAgentReply } from "@/lib/agent/deliver-reply";
 import { resolveOwnerDecision } from "@/lib/agent/owner-resolution";
@@ -17,6 +18,7 @@ import { decryptPii, encryptPii, piiLookupHash } from "@/lib/privacy/pii";
 import { getCmsSettings } from "@/lib/cms/content";
 import { getRedisConnection } from "@/lib/queue/connection";
 import { sleep } from "@/lib/agent/pacing";
+import { uploadInboundMessageMedia } from "@/lib/storage/object-storage";
 
 export type InboundMessageJob = {
   metaMessageId: string;
@@ -25,7 +27,23 @@ export type InboundMessageJob = {
   type: string;
   text?: string;
   contextMessageId?: string;
+  media?: {
+    id: string;
+    mediaType: string;
+    mimeType?: string;
+    sha256?: string;
+    caption?: string;
+    fileName?: string;
+  };
   payload: unknown;
+};
+
+const MEDIA_LIMITS: Record<string, number> = {
+  image: 10_000_000,
+  sticker: 2_000_000,
+  video: 25_000_000,
+  audio: 16_000_000,
+  document: 25_000_000,
 };
 
 export async function processInboundMessage(data: InboundMessageJob) {
@@ -33,6 +51,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
   const typingStartedAt = Date.now();
   const existing = await prisma.message.findUnique({
     where: { metaMessageId: data.metaMessageId },
+    include: { attachments: true },
   });
   if (existing) {
     const completed = await prisma.processingMetric.findUnique({
@@ -102,8 +121,9 @@ export async function processInboundMessage(data: InboundMessageJob) {
     });
   }
 
-  if (!existing) {
-    await prisma.message.create({
+  let storedMessageId = existing?.id;
+  if (!storedMessageId) {
+    const createdMessage = await prisma.message.create({
       data: {
         conversationId: conversation.id,
         direction: "IN",
@@ -112,6 +132,10 @@ export async function processInboundMessage(data: InboundMessageJob) {
         metaMessageId: data.metaMessageId,
       },
     });
+    storedMessageId = createdMessage.id;
+  }
+  if (data.media && (!existing || existing.attachments.length === 0)) {
+    await persistInboundAttachment(storedMessageId, data);
   }
   await prisma.conversation.update({
     where: { id: conversation.id },
@@ -167,6 +191,20 @@ export async function processInboundMessage(data: InboundMessageJob) {
         texts: [greeting],
         mediaIds: [],
         escalated: false,
+        paymentLinks: [],
+        toolRounds: 0,
+      };
+    } else if (data.type !== "text" && data.type !== "image" && data.type !== "reaction") {
+      const { escalateToOwner } = await import("@/lib/agent/tools/escalate-to-owner");
+      const escalated = await escalateToOwner(conversation.id, {
+        reason_code: "out_of_scope",
+        conversation_summary: `Customer sent a ${data.type} attachment. It is stored for owner review, but the AI cannot safely interpret this media type.`,
+        urgency: "normal",
+      });
+      reply = {
+        texts: [escalated.customer_message ?? "I’ve shared that attachment with the team for review."],
+        mediaIds: [],
+        escalated: true,
         paymentLinks: [],
         toolRounds: 0,
       };
@@ -243,6 +281,86 @@ export async function processInboundMessage(data: InboundMessageJob) {
     paymentLinks: delivered.paymentLinks,
     escalated: reply.escalated,
   };
+}
+
+async function persistInboundAttachment(messageId: string, data: InboundMessageJob) {
+  if (!data.media) return;
+  const maxBytes = MEDIA_LIMITS[data.media.mediaType];
+  if (!maxBytes) {
+    await prisma.messageAttachment.create({
+      data: {
+        messageId,
+        mediaType: data.media.mediaType,
+        metaMediaId: encryptPii(data.media.id),
+        mimeType: data.media.mimeType,
+        fileName: encryptPii(data.media.fileName),
+        sha256: data.media.sha256,
+        status: "UNSUPPORTED",
+        errorMessage: encryptPii("Unsupported WhatsApp attachment type"),
+      },
+    });
+    return;
+  }
+  try {
+    const downloaded = await downloadWhatsAppMedia(data.media.id, maxBytes);
+    if (!isAllowedInboundMime(data.media.mediaType, downloaded.mimeType)) {
+      throw new Error(`Unsupported ${data.media.mediaType} MIME type`);
+    }
+    const stored = await uploadInboundMessageMedia({
+      metaMessageId: data.metaMessageId,
+      bytes: downloaded.bytes,
+      contentType: downloaded.mimeType,
+      originalName: data.media.fileName || `attachment-${data.metaMessageId}`,
+    });
+    await prisma.messageAttachment.create({
+      data: {
+        messageId,
+        mediaType: data.media.mediaType,
+        metaMediaId: encryptPii(data.media.id),
+        storageKey: stored.key,
+        storageUrl: stored.url,
+        mimeType: downloaded.mimeType,
+        fileName: encryptPii(data.media.fileName),
+        fileSize: downloaded.fileSize,
+        sha256: downloaded.sha256 || data.media.sha256,
+      },
+    });
+  } catch (error) {
+    await prisma.messageAttachment.create({
+      data: {
+        messageId,
+        mediaType: data.media.mediaType,
+        metaMediaId: encryptPii(data.media.id),
+        mimeType: data.media.mimeType,
+        fileName: encryptPii(data.media.fileName),
+        sha256: data.media.sha256,
+        status: "FAILED",
+        errorMessage: encryptPii(error instanceof Error ? error.message.slice(0, 500) : "Media download failed"),
+      },
+    });
+    console.error(JSON.stringify({
+      msg: "inbound_media_download_failed",
+      metaMessageId: data.metaMessageId,
+      mediaType: data.media.mediaType,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
+export function isAllowedInboundMime(mediaType: string, mimeType: string) {
+  const normalized = mimeType.split(";", 1)[0].trim().toLowerCase();
+  const allowed: Record<string, Set<string>> = {
+    image: new Set(["image/jpeg", "image/png", "image/webp"]),
+    sticker: new Set(["image/webp"]),
+    video: new Set(["video/mp4", "video/3gpp", "video/quicktime"]),
+    audio: new Set(["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/opus"]),
+    document: new Set([
+      "application/pdf", "text/plain", "text/csv",
+      "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ]),
+  };
+  return allowed[mediaType]?.has(normalized) ?? false;
 }
 
 export function isSimpleGreeting(value: string) {

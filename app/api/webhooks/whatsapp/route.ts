@@ -41,7 +41,16 @@ export async function POST(request: NextRequest) {
   const { messages, statuses, templateUpdates } = extractWebhookData(payload);
   const queue = getWhatsAppWebhookQueue();
   const events = [
-    ...messages.map((message) => ({ eventId: message.id, kind: "INBOUND_MESSAGE" as const, payload: { metaMessageId: message.id, from: message.from, timestamp: message.timestamp, type: message.type, text: message.text?.body ?? (message.reaction?.emoji ? `[Customer reacted ${message.reaction.emoji}]` : undefined), contextMessageId: message.context?.id, payload: message } })),
+    ...messages.map((message) => ({ eventId: message.id, kind: "INBOUND_MESSAGE" as const, payload: {
+      metaMessageId: message.id,
+      from: message.from,
+      timestamp: message.timestamp,
+      type: message.type,
+      text: message.text?.body ?? mediaFromMessage(message)?.caption ?? (message.reaction?.emoji ? `[Customer reacted ${message.reaction.emoji}]` : undefined),
+      contextMessageId: message.context?.id,
+      media: mediaFromMessage(message),
+      payload: message,
+    } })),
     ...statuses.map((status) => ({ eventId: `status:${status.id}:${status.status}`, kind: "DELIVERY_STATUS" as const, payload: status })),
     ...templateUpdates.map((update, index) => ({ eventId: `template:${createHash("sha256").update(rawBody).update(String(index)).digest("hex")}`, kind: "TEMPLATE_STATUS" as const, payload: update })),
   ];
@@ -107,7 +116,33 @@ export type WhatsAppInbound = {
   text?: { body?: string };
   reaction?: { emoji?: string; message_id?: string };
   context?: { id?: string; from?: string };
+  image?: WhatsAppInboundMedia;
+  video?: WhatsAppInboundMedia;
+  audio?: WhatsAppInboundMedia;
+  document?: WhatsAppInboundMedia;
+  sticker?: WhatsAppInboundMedia;
 };
+
+export type WhatsAppInboundMedia = {
+  id?: string;
+  mime_type?: string;
+  sha256?: string;
+  caption?: string;
+  filename?: string;
+};
+
+export function mediaFromMessage(message: WhatsAppInbound) {
+  const value = message.image ?? message.video ?? message.audio ?? message.document ?? message.sticker;
+  if (!value?.id) return undefined;
+  return {
+    id: value.id,
+    mediaType: message.type,
+    mimeType: value.mime_type,
+    sha256: value.sha256,
+    caption: value.caption,
+    fileName: value.filename,
+  };
+}
 
 export type WhatsAppStatus = {
   id: string;

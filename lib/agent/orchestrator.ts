@@ -8,6 +8,7 @@ import { escalateToOwner } from "@/lib/agent/tools/escalate-to-owner";
 import { matchEscalationHint } from "@/lib/agent/escalation-hint";
 import { recordLatency } from "@/lib/analytics/latency";
 import { decryptPii, encryptPii } from "@/lib/privacy/pii";
+import { readStoredObject } from "@/lib/storage/object-storage";
 
 const HISTORY_LIMIT = 20;
 const MAX_TOOL_ROUNDS = 8;
@@ -56,7 +57,7 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     where: { id: conversationId },
     include: {
       customer: true,
-      messages: { orderBy: { sentAt: "desc" }, take: HISTORY_LIMIT },
+      messages: { orderBy: { sentAt: "desc" }, take: HISTORY_LIMIT, include: { attachments: true } },
       quotes: { orderBy: { createdAt: "desc" }, take: 5 },
     },
   });
@@ -81,19 +82,20 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
   }
 
   for (const message of history) {
-    if (!message.content && message.mediaIds.length === 0) continue;
+    if (!message.content && message.mediaIds.length === 0 && message.attachments.length === 0) continue;
     const text =
       decryptPii(message.content) ??
-      (message.mediaIds.length ? "[media message]" : "");
+      (message.mediaIds.length || message.attachments.length ? "[media message]" : "");
     if (message.direction === "IN") {
-      claudeMessages.push({ role: "user", content: text });
+      claudeMessages.push({ role: "user", content: await inboundMessageContent(message, text) });
     } else {
       claudeMessages.push({ role: "assistant", content: text });
     }
   }
 
-  const latestInbound = [...history].reverse().find((m) => m.direction === "IN" && m.content);
-  const latestInboundText = decryptPii(latestInbound?.content);
+  const latestInbound = [...history].reverse().find((m) => m.direction === "IN");
+  const latestInboundText = decryptPii(latestInbound?.content) ?? (latestInbound?.attachments.length ? `[Customer sent ${latestInbound.attachments.map((item) => item.mediaType).join(", ")}]` : null);
+  const unreadableAttachment = latestInbound?.attachments.find((item) => item.status !== "READY");
   const hint = conversation.misunderstandingCount >= MISUNDERSTANDING_TURN_THRESHOLD - 1 ? "repeated_misunderstanding" : latestInboundText ? matchEscalationHint(latestInboundText) : null;
   if (hint) {
     claudeMessages.push({
@@ -110,6 +112,20 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     ? await prisma.escalationRule.findUnique({ where: { reasonCode: hint }, select: { enabled: true } })
     : null;
   await recordLatency("context_assembly", contextStartedAt, conversationId);
+  if (unreadableAttachment) {
+    const escalation = await escalateToOwner(conversationId, {
+      reason_code: "out_of_scope",
+      conversation_summary: `Customer attachment could not be interpreted safely (${unreadableAttachment.mediaType}, status ${unreadableAttachment.status}). Review it in the conversation dashboard.`,
+      urgency: "normal",
+    });
+    return {
+      texts: [escalation.customer_message ?? "I’ve shared that attachment with the team for review."],
+      mediaIds: [],
+      escalated: true,
+      paymentLinks: [],
+      toolRounds: 0,
+    };
+  }
   if (hint && hintedRule?.enabled && HARD_ESCALATION_REASONS.has(hint)) {
     const escalation = await escalateToOwner(conversationId, {
       reason_code: hint,
@@ -308,4 +324,23 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     paymentLinks,
     toolRounds,
   };
+}
+
+async function inboundMessageContent(
+  message: {
+    attachments: Array<{ mediaType: string; mimeType: string | null; storageKey: string | null; status: string }>;
+  },
+  text: string,
+): Promise<Anthropic.ContentBlockParam[]> {
+  const content: Anthropic.ContentBlockParam[] = [];
+  for (const attachment of message.attachments.slice(0, 4)) {
+    if (attachment.status !== "READY" || !attachment.storageKey || !attachment.mimeType?.startsWith("image/")) continue;
+    const stored = await readStoredObject(attachment.storageKey);
+    if (!stored || stored.bytes.length > 5_000_000) continue;
+    const mediaType = stored.contentType as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mediaType)) continue;
+    content.push({ type: "image", source: { type: "base64", media_type: mediaType, data: stored.bytes.toString("base64") } });
+  }
+  content.push({ type: "text", text: text || "The customer sent the attached image. Describe only what is visibly present. Use database tools for every business fact, price, availability, policy, date, or vehicle identity." });
+  return content;
 }

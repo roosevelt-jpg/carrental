@@ -171,8 +171,28 @@ model Message {
   agentReply      Json?
   sourceMessageId String?
   sequence        Int?
+  attachments     MessageAttachment[]
 
   @@unique([sourceMessageId, sequence])
+}
+
+model MessageAttachment {
+  id            String   @id @default(cuid())
+  messageId     String
+  message       Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  mediaType     String
+  metaMediaId   String?
+  storageKey    String?
+  storageUrl    String?
+  mimeType      String?
+  fileName      String?
+  fileSize      Int?
+  sha256        String?
+  status        String   @default("READY")
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  @@index([messageId, createdAt])
 }
 
 enum MessageDeliveryStatus {

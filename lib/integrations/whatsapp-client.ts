@@ -147,6 +147,39 @@ export async function uploadMediaFromUrl(fileUrl: string, mimeType: string) {
   return body.id;
 }
 
+export type DownloadedWhatsAppMedia = {
+  bytes: Buffer;
+  mimeType: string;
+  fileSize: number;
+  sha256?: string;
+};
+
+export async function downloadWhatsAppMedia(mediaId: string, maxBytes: number): Promise<DownloadedWhatsAppMedia> {
+  const { accessToken } = await requiredWhatsAppCreds();
+  const metadata = await graphGet(mediaId) as {
+    url?: string;
+    mime_type?: string;
+    file_size?: number;
+    sha256?: string;
+  };
+  if (!metadata.url) throw new Error("Meta did not return a media download URL");
+  if (metadata.file_size && metadata.file_size > maxBytes) {
+    throw new Error(`Attachment exceeds the ${Math.floor(maxBytes / 1_000_000)} MB safety limit`);
+  }
+  const response = await fetch(metadata.url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new MetaApiError(`Meta media download failed (${response.status})`, response.status);
+  const declaredLength = Number(response.headers.get("content-length")) || metadata.file_size || 0;
+  if (declaredLength > maxBytes) throw new Error(`Attachment exceeds the ${Math.floor(maxBytes / 1_000_000)} MB safety limit`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > maxBytes) throw new Error(`Attachment exceeds the ${Math.floor(maxBytes / 1_000_000)} MB safety limit`);
+  return {
+    bytes,
+    mimeType: metadata.mime_type || response.headers.get("content-type") || "application/octet-stream",
+    fileSize: bytes.length,
+    sha256: metadata.sha256,
+  };
+}
+
 export async function sendCtaUrlMessage(params: {
   to: string;
   bodyText: string;

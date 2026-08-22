@@ -2,6 +2,7 @@ import {
   PutObjectCommand,
   S3Client,
   DeleteObjectCommand,
+  GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { del, get, put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
@@ -31,12 +32,13 @@ export function decodeBlobPath(token: string) {
   }
 }
 
-export async function readPrivateBlob(pathname: string, ifNoneMatch?: string | null) {
+export async function readPrivateBlob(pathname: string, ifNoneMatch?: string | null, range?: string | null) {
   if (!blobConfigured()) return null;
   return get(pathname, {
     access: "private",
     token: process.env.BLOB_READ_WRITE_TOKEN,
     ifNoneMatch: ifNoneMatch || undefined,
+    headers: range ? { Range: range } : undefined,
   });
 }
 
@@ -207,6 +209,78 @@ export async function uploadKnowledgeDocument(params: {
   return { url: `${getAppBaseUrl()}/uploads/knowledge/${filename}`, key: `local:knowledge/${filename}` };
 }
 
+export async function uploadInboundMessageMedia(params: {
+  metaMessageId: string;
+  bytes: Buffer;
+  contentType: string;
+  originalName: string;
+}): Promise<{ url: string; key: string }> {
+  const ext = extensionFor(params.contentType, params.originalName);
+  const safeMessageId = params.metaMessageId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100);
+  const key = `inbound/${safeMessageId}/${randomUUID()}${ext}`;
+  const backend = getStorageBackend();
+
+  if (backend === "vercel-blob") {
+    const blob = await put(key, params.bytes, {
+      access: "private",
+      contentType: params.contentType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+    });
+    const pathname = blob.pathname || key;
+    return { url: blobDeliveryUrl(pathname, true), key: pathname };
+  }
+
+  if (backend === "s3") {
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET!,
+      Key: key,
+      Body: params.bytes,
+      ContentType: params.contentType,
+    }));
+    return { url: `/api/admin/conversation-media/${Buffer.from(key).toString("base64url")}`, key };
+  }
+
+  const dir = path.join(process.cwd(), "public", "uploads", "inbound", safeMessageId);
+  await mkdir(dir, { recursive: true });
+  const filename = `${randomUUID()}${ext}`;
+  await writeFile(path.join(dir, filename), params.bytes);
+  return {
+    url: `/api/admin/conversation-media/${Buffer.from(`local:inbound/${safeMessageId}/${filename}`).toString("base64url")}`,
+    key: `local:inbound/${safeMessageId}/${filename}`,
+  };
+}
+
+export async function readStoredObject(key: string): Promise<{ bytes: Buffer; contentType: string } | null> {
+  if (key.startsWith("local:")) {
+    const { readFile } = await import("node:fs/promises");
+    const relative = key.replace(/^local:/, "");
+    const bytes = await readFile(path.join(process.cwd(), "public", "uploads", relative));
+    return { bytes, contentType: "application/octet-stream" };
+  }
+  if (blobConfigured()) {
+    const result = await readPrivateBlob(key);
+    if (!result || result.statusCode === 304) return null;
+    const chunks: Uint8Array[] = [];
+    const reader = result.stream.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    return { bytes: Buffer.concat(chunks), contentType: result.blob.contentType };
+  }
+  if (s3Configured()) {
+    const result = await getS3Client().send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET!, Key: key }));
+    if (!result.Body) return null;
+    return {
+      bytes: Buffer.from(await result.Body.transformToByteArray()),
+      contentType: result.ContentType || "application/octet-stream",
+    };
+  }
+  return null;
+}
+
 export async function deleteStoredObject(urlOrKey: string) {
   if (urlOrKey.startsWith("local:") || urlOrKey.includes("/uploads/vehicles/") || urlOrKey.includes("/uploads/knowledge/")) {
     const relative = urlOrKey.includes("/uploads/")
@@ -232,7 +306,8 @@ export async function deleteStoredObject(urlOrKey: string) {
       urlOrKey.includes("blob.vercel-storage.com") ||
       urlOrKey.startsWith("vehicles/") ||
       urlOrKey.startsWith("knowledge/") ||
-      urlOrKey.startsWith("cms/"))
+      urlOrKey.startsWith("cms/") ||
+      urlOrKey.startsWith("inbound/"))
   ) {
     await del(decodedProxyPath || urlOrKey, { token: process.env.BLOB_READ_WRITE_TOKEN });
     return;
@@ -252,6 +327,12 @@ function extensionFor(contentType: string, originalName: string) {
   if (contentType.includes("png")) return ".png";
   if (contentType.includes("webp")) return ".webp";
   if (contentType.includes("jpeg") || contentType.includes("jpg")) return ".jpg";
-  const fromName = path.extname(originalName);
+  if (contentType.includes("gif")) return ".gif";
+  if (contentType.includes("mp4")) return ".mp4";
+  if (contentType.includes("quicktime")) return ".mov";
+  if (contentType.includes("ogg")) return ".ogg";
+  if (contentType.includes("mpeg")) return contentType.startsWith("audio/") ? ".mp3" : ".mpeg";
+  if (contentType.includes("pdf")) return ".pdf";
+  const fromName = path.extname(originalName).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 10);
   return fromName || ".jpg";
 }
