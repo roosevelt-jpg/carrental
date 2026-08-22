@@ -3,7 +3,7 @@ import {
   S3Client,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import { del, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +13,31 @@ export type StorageBackend = "vercel-blob" | "s3" | "local";
 
 function blobConfigured() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+function blobDeliveryUrl(pathname: string, adminOnly = false) {
+  const token = Buffer.from(pathname, "utf8").toString("base64url");
+  const scope = adminOnly ? "admin/media" : "media";
+  return `${getAppBaseUrl()}/api/${scope}/${token}`;
+}
+
+export function decodeBlobPath(token: string) {
+  try {
+    const pathname = Buffer.from(token, "base64url").toString("utf8");
+    if (!pathname || pathname.includes("..") || pathname.startsWith("/")) return null;
+    return pathname;
+  } catch {
+    return null;
+  }
+}
+
+export async function readPrivateBlob(pathname: string, ifNoneMatch?: string | null) {
+  if (!blobConfigured()) return null;
+  return get(pathname, {
+    access: "private",
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+    ifNoneMatch: ifNoneMatch || undefined,
+  });
 }
 
 function s3Configured() {
@@ -59,12 +84,13 @@ export async function uploadVehiclePhoto(params: {
 
   if (backend === "vercel-blob") {
     const blob = await put(key, params.bytes, {
-      access: "public",
+      access: "private",
       contentType: params.contentType,
       token: process.env.BLOB_READ_WRITE_TOKEN,
       addRandomSuffix: false,
     });
-    return { url: blob.url, key: blob.pathname || key };
+    const pathname = blob.pathname || key;
+    return { url: blobDeliveryUrl(pathname), key: pathname };
   }
 
   if (backend === "s3") {
@@ -111,12 +137,13 @@ export async function uploadCmsAsset(params: {
 
   if (backend === "vercel-blob") {
     const blob = await put(key, params.bytes, {
-      access: "public",
+      access: "private",
       contentType: params.contentType,
       token: process.env.BLOB_READ_WRITE_TOKEN,
       addRandomSuffix: false,
     });
-    return { url: blob.url, key: blob.pathname || key };
+    const pathname = blob.pathname || key;
+    return { url: blobDeliveryUrl(pathname), key: pathname };
   }
 
   if (backend === "s3") {
@@ -157,12 +184,13 @@ export async function uploadKnowledgeDocument(params: {
 
   if (backend === "vercel-blob") {
     const blob = await put(key, params.bytes, {
-      access: "public",
+      access: "private",
       contentType: params.contentType,
       token: process.env.BLOB_READ_WRITE_TOKEN,
       addRandomSuffix: false,
     });
-    return { url: blob.url, key: blob.pathname || key };
+    const pathname = blob.pathname || key;
+    return { url: blobDeliveryUrl(pathname, true), key: pathname };
   }
 
   if (backend === "s3") {
@@ -195,14 +223,18 @@ export async function deleteStoredObject(urlOrKey: string) {
     return;
   }
 
+  const proxyToken = urlOrKey.match(/\/api\/(?:admin\/)?media\/([^/?#]+)/)?.[1];
+  const decodedProxyPath = proxyToken ? decodeBlobPath(proxyToken) : null;
+
   if (
     blobConfigured() &&
-    (urlOrKey.includes("blob.vercel-storage.com") ||
+    (decodedProxyPath ||
+      urlOrKey.includes("blob.vercel-storage.com") ||
       urlOrKey.startsWith("vehicles/") ||
       urlOrKey.startsWith("knowledge/") ||
       urlOrKey.startsWith("cms/"))
   ) {
-    await del(urlOrKey, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    await del(decodedProxyPath || urlOrKey, { token: process.env.BLOB_READ_WRITE_TOKEN });
     return;
   }
 

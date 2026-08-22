@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
 import { getPublicCmsContent } from "@/lib/cms/content";
 import { PreferencesControls } from "@/components/preferences/preferences-controls";
+import { VehicleGallery } from "@/components/public/vehicle-gallery";
 
 export const dynamic = "force-dynamic";
 
@@ -209,18 +210,7 @@ export default async function HomePage() {
               {vehicles.map((vehicle) => (
                 <article key={vehicle.id} className="group overflow-hidden border border-white/10 bg-white/[0.035]">
                   <div className="relative aspect-[4/3] overflow-hidden bg-white/5">
-                    {vehicle.photoUrls[0] ? (
-                      <Image
-                        unoptimized
-                        fill
-                        sizes="(max-width: 768px) 100vw, 33vw"
-                        src={vehicle.photoUrls[0]}
-                        alt={`${vehicle.make} ${vehicle.model}`}
-                        className="object-cover transition duration-700 group-hover:scale-[1.03]"
-                      />
-                    ) : (
-                      <div className="grid h-full place-items-center text-sm text-cream/30">Photography coming soon</div>
-                    )}
+                    <VehicleGallery photos={vehicle.photoUrls} alt={`${vehicle.make} ${vehicle.model}`} />
                   </div>
                   <div className="p-6">
                     <p className="text-xs uppercase tracking-[0.2em] text-[var(--site-primary)]">

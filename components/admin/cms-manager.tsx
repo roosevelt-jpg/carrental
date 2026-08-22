@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
@@ -113,7 +114,7 @@ export function CmsManager({ settings: initial, faqs, knowledge, revisions }: { 
       {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
       {message ? <p className="mt-4 text-sm text-ok">{message}</p> : null}
 
-      {tab === "business" ? <section className="mt-6 space-y-6"><FieldGrid fields={BUSINESS_FIELDS} settings={settings} setField={setField} /><div className="grid gap-5 rounded-xl border border-line bg-panel p-6 md:grid-cols-2"><AssetField label="Logo" value={String(settings.logoUrl ?? "")} disabled={busy} onChange={(value) => setField("logoUrl", value)} onFile={(file) => uploadAsset("logoUrl", file)} /><AssetField label="Hero image" value={String(settings.heroImageUrl ?? "")} disabled={busy} onChange={(value) => setField("heroImageUrl", value)} onFile={(file) => uploadAsset("heroImageUrl", file)} /><ColorField label="Primary color" field="primaryColor" settings={settings} setField={setField} /><ColorField label="Accent color" field="accentColor" settings={settings} setField={setField} /><ColorField label="Background color" field="backgroundColor" settings={settings} setField={setField} /></div></section> : null}
+      {tab === "business" ? <section className="mt-6 space-y-6"><FieldGrid fields={BUSINESS_FIELDS} settings={settings} setField={setField} /><div className="grid gap-5 rounded-xl border border-line bg-panel p-6 md:grid-cols-2"><AssetField label="Logo" value={String(settings.logoUrl ?? "")} disabled={busy} onFile={(file) => uploadAsset("logoUrl", file)} /><AssetField label="Hero image" value={String(settings.heroImageUrl ?? "")} disabled={busy} onFile={(file) => uploadAsset("heroImageUrl", file)} /><ColorField label="Primary color" field="primaryColor" settings={settings} setField={setField} /><ColorField label="Accent color" field="accentColor" settings={settings} setField={setField} /><ColorField label="Background color" field="backgroundColor" settings={settings} setField={setField} /></div></section> : null}
       {tab === "website" ? <section className="mt-6"><FieldGrid fields={WEBSITE_FIELDS} settings={settings} setField={setField} /></section> : null}
       {tab === "agent" ? <section className="mt-6"><p className="mb-5 rounded-xl border border-line bg-panel p-4 text-sm text-muted">These fields are injected into every Claude conversation together with live policies and verified knowledge. Hard payment and safety constraints remain enforced in code.</p><FieldGrid fields={AGENT_FIELDS} settings={settings} setField={setField} /></section> : null}
       {tab === "faqs" ? <FaqManager rows={faqs} onError={setError} /> : null}
@@ -127,8 +128,8 @@ function FieldGrid({ fields, settings, setField }: { fields: readonly (readonly 
   return <div className="grid gap-5 rounded-xl border border-line bg-panel p-6 md:grid-cols-2">{fields.map(([key, label, kind]) => <div key={key} className={kind === "textarea" ? "md:col-span-2" : ""}><label htmlFor={`cms-${key}`}>{label}</label>{kind === "textarea" ? <textarea id={`cms-${key}`} rows={key === "salesScript" ? 9 : 4} value={String(settings[key] ?? "")} onChange={(event) => setField(key, event.target.value)} /> : <input id={`cms-${key}`} value={String(settings[key] ?? "")} onChange={(event) => setField(key, event.target.value)} />}</div>)}</div>;
 }
 
-function AssetField({ label, value, disabled, onChange, onFile }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void; onFile: (file: File) => void }) {
-  return <div><label>{label}</label><input value={value} placeholder="Upload or enter an HTTPS URL" onChange={(event) => onChange(event.target.value)} /><input className="mt-2" type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /></div>;
+function AssetField({ label, value, disabled, onFile }: { label: string; value: string; disabled: boolean; onFile: (file: File) => void }) {
+  return <div><label>{label}</label><div className="relative aspect-[16/7] overflow-hidden rounded-xl border border-line bg-panel-2/55">{value ? <Image unoptimized fill sizes="(min-width: 768px) 50vw, 100vw" src={value} alt={`Current ${label.toLowerCase()}`} className="object-cover" /> : <div className="grid h-full place-items-center text-sm text-muted">No {label.toLowerCase()} uploaded</div>}</div><input className="mt-3" type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.currentTarget.value = ""; }} /><p className="mt-2 text-xs text-muted">Uploads directly to the configured object storage. No URL entry is required.</p></div>;
 }
 
 function ColorField({ label, field, settings, setField }: { label: string; field: string; settings: Settings; setField: (key: string, value: string) => void }) {
