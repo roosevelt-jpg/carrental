@@ -57,7 +57,11 @@ export async function POST(request: NextRequest) {
         if (event.queuedAt && !event.error) continue;
         recovery = true;
       }
-      await queue.add("process", { eventId: event.eventId }, { jobId: recovery ? `${event.id}:recovery:${Date.now()}` : event.eventId });
+      await queue.add(
+        "process",
+        { eventId: event.eventId },
+        { jobId: webhookJobId(event.id, event.eventId, recovery) },
+      );
       const queuedAt = new Date();
       await prisma.$transaction([
         prisma.whatsAppWebhookEvent.update({ where: { id: event.id }, data: { queuedAt, error: null } }),
@@ -70,6 +74,11 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, accepted: events.length });
+}
+
+export function webhookJobId(databaseId: string, eventId: string, recovery = false) {
+  const digest = createHash("sha256").update(eventId).digest("hex");
+  return recovery ? `wa-${databaseId}-recovery-${Date.now()}-${digest}` : `wa-${digest}`;
 }
 
 export function verifyMetaSignature(
@@ -114,7 +123,7 @@ export type WhatsAppWebhook = {
         messages?: WhatsAppInbound[];
         statuses?: WhatsAppStatus[];
         event?: string;
-        message_template_id?: string;
+        message_template_id?: string | number;
         message_template_name?: string;
         reason?: string;
       };
@@ -127,7 +136,7 @@ export function extractWebhookData(payload: WhatsAppWebhook) {
   const statuses: WhatsAppStatus[] = [];
   const templateUpdates: Array<{
     event: string;
-    message_template_id?: string;
+    message_template_id?: string | number;
     message_template_name?: string;
     reason?: string;
   }> = [];

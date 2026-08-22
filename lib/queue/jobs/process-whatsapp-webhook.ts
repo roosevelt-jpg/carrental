@@ -3,7 +3,7 @@ import { processInboundMessage, type InboundMessageJob } from "@/lib/queue/jobs/
 import { decryptPii } from "@/lib/privacy/pii";
 
 type DeliveryPayload = { id: string; status: string; errors?: Array<{ code?: number }> };
-type TemplatePayload = { event: string; message_template_id?: string; message_template_name?: string; reason?: string };
+type TemplatePayload = { event: string; message_template_id?: string | number; message_template_name?: string; reason?: string };
 
 export async function processWhatsAppWebhookEvent(eventId: string) {
   const event = await prisma.whatsAppWebhookEvent.findUnique({ where: { eventId } });
@@ -29,7 +29,10 @@ async function processDelivery(status: DeliveryPayload) {
 
 async function processTemplate(update: TemplatePayload) {
   const status = update.event === "APPROVED" ? "APPROVED" : update.event === "REJECTED" || update.event === "DISABLED" ? "REJECTED" : "SUBMITTED";
-  await prisma.messageTemplate.updateMany({ where: { OR: [...(update.message_template_id ? [{ metaTemplateId: update.message_template_id }] : []), ...(update.message_template_name ? [{ metaTemplateName: update.message_template_name }] : [])] }, data: { status, rejectionReason: status === "REJECTED" ? update.reason ?? update.event : null } });
+  const metaTemplateId = update.message_template_id == null
+    ? null
+    : String(update.message_template_id);
+  await prisma.messageTemplate.updateMany({ where: { OR: [...(metaTemplateId ? [{ metaTemplateId }] : []), ...(update.message_template_name ? [{ metaTemplateName: update.message_template_name }] : [])] }, data: { status, rejectionReason: status === "REJECTED" ? update.reason ?? update.event : null } });
 }
 
 function mapDeliveryStatus(status: string) {
