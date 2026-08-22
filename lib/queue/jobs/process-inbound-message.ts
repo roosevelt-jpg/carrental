@@ -12,6 +12,7 @@ import { deliverAgentReply } from "@/lib/agent/deliver-reply";
 import { resolveOwnerDecision } from "@/lib/agent/owner-resolution";
 import type { AgentReply } from "@/lib/agent/orchestrator";
 import { captureException } from "@/lib/observability/sentry";
+import { selectContextualReaction } from "@/lib/agent/contextual-reaction";
 
 export type InboundMessageJob = {
   metaMessageId: string;
@@ -112,7 +113,10 @@ export async function processInboundMessage(data: InboundMessageJob) {
 
   try {
     await markMessageRead(data.metaMessageId);
-    await sendReaction(data.from, data.metaMessageId, "👀");
+    const reaction = selectContextualReaction({ type: data.type, text: data.text });
+    if (reaction) {
+      await sendReaction(data.from, data.metaMessageId, reaction);
+    }
   } catch (error) {
     console.error(
       JSON.stringify({
