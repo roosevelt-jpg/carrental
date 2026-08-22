@@ -150,11 +150,45 @@ export async function uploadCmsAsset(params: {
   };
 }
 
+export async function uploadKnowledgeDocument(params: {
+  bytes: Buffer;
+  contentType: string;
+  originalName: string;
+}): Promise<{ url: string; key: string }> {
+  const safeExtension = path.extname(params.originalName).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 10) || ".txt";
+  const key = `knowledge/${randomUUID()}${safeExtension}`;
+  const backend = getStorageBackend();
+
+  if (backend === "vercel-blob") {
+    const blob = await put(key, params.bytes, {
+      access: "public",
+      contentType: params.contentType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+    });
+    return { url: blob.url, key: blob.pathname || key };
+  }
+  if (backend === "s3") {
+    const bucket = process.env.S3_BUCKET!;
+    await getS3Client().send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: params.bytes, ContentType: params.contentType }));
+    const base = (process.env.S3_PUBLIC_BASE_URL || process.env.S3_ENDPOINT!).replace(/\/$/, "");
+    return { url: process.env.S3_PUBLIC_BASE_URL ? `${base}/${key}` : `${base}/${bucket}/${key}`, key };
+  }
+
+  const dir = path.join(process.cwd(), "public", "uploads", "knowledge");
+  await mkdir(dir, { recursive: true });
+  const filename = `${randomUUID()}${safeExtension}`;
+  await writeFile(path.join(dir, filename), params.bytes);
+  return { url: `${getAppBaseUrl()}/uploads/knowledge/${filename}`, key: `local:knowledge/${filename}` };
+}
+
 export async function deleteStoredObject(urlOrKey: string) {
-  if (urlOrKey.startsWith("local:") || urlOrKey.includes("/uploads/vehicles/")) {
+  if (urlOrKey.startsWith("local:") || urlOrKey.includes("/uploads/vehicles/") || urlOrKey.includes("/uploads/knowledge/")) {
     const relative = urlOrKey.includes("/uploads/")
       ? urlOrKey.split("/uploads/")[1]
-      : urlOrKey.replace(/^local:/, "vehicles/");
+      : urlOrKey.startsWith("local:knowledge/")
+        ? urlOrKey.replace(/^local:/, "")
+        : `vehicles/${urlOrKey.replace(/^local:/, "")}`;
     const filePath = path.join(process.cwd(), "public", "uploads", relative);
     try {
       await unlink(filePath);
@@ -167,7 +201,8 @@ export async function deleteStoredObject(urlOrKey: string) {
   if (
     blobConfigured() &&
     (urlOrKey.includes("blob.vercel-storage.com") ||
-      urlOrKey.startsWith("vehicles/"))
+      urlOrKey.startsWith("vehicles/") ||
+      urlOrKey.startsWith("knowledge/"))
   ) {
     try {
       await del(urlOrKey, { token: process.env.BLOB_READ_WRITE_TOKEN });

@@ -95,6 +95,22 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "search_knowledge",
+    description:
+      "Search only owner-verified business answers and training documents. Use before answering any factual business question not covered by a live fleet, pricing, availability, or policy tool. If no result fully supports the answer, escalate instead of guessing.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "The customer's factual question in clear search terms" } },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_business_time",
+    description:
+      "Return the exact current date and time in the business timezone. Always use this for questions involving today, tomorrow, the current date, current time, or opening timing.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "escalate_to_owner",
     description:
       "Hand off to the human owner with full context. Use whenever a matching escalation rule fires or the agent cannot confidently resolve the customer's request with its available tools.",

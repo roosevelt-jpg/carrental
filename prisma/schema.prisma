@@ -483,3 +483,45 @@ model KnowledgeEntry {
 
   @@index([active, category])
 }
+
+enum KnowledgeDocumentStatus {
+  DRAFT
+  VERIFIED
+  FAILED
+  ARCHIVED
+}
+
+model KnowledgeDocument {
+  id           String                  @id @default(cuid())
+  title        String
+  category     String                  @default("General")
+  keywords     String[]
+  content      String
+  fileName     String
+  fileUrl      String?
+  mimeType     String
+  checksum     String
+  status       KnowledgeDocumentStatus @default(DRAFT)
+  errorMessage String?
+  verifiedAt   DateTime?
+  verifiedBy   String?
+  expiresAt    DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@index([status, category])
+  @@index([expiresAt])
+}
+
+model KnowledgeQueryLog {
+  id                 String   @id @default(cuid())
+  conversationId     String?
+  query              String
+  matchedEntryIds    String[]
+  matchedDocumentIds String[]
+  found              Boolean
+  createdAt          DateTime @default(now())
+
+  @@index([createdAt, found])
+  @@index([conversationId, createdAt])
+}

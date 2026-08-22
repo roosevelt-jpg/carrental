@@ -6,6 +6,8 @@ import { createQuote } from "@/lib/agent/tools/create-quote";
 import { generatePaymentLink } from "@/lib/agent/tools/generate-payment-link";
 import { getPolicy } from "@/lib/agent/tools/get-policy";
 import { escalateToOwner } from "@/lib/agent/tools/escalate-to-owner";
+import { searchVerifiedKnowledge } from "@/lib/knowledge/search";
+import { getBusinessTime } from "@/lib/agent/tools/get-business-time";
 
 export type ToolContext = {
   conversationId: string;
@@ -58,6 +60,10 @@ export async function executeTool(
         });
       case "get_policy":
         return await getPolicy({ policy_type: String(input.policy_type) });
+      case "search_knowledge":
+        return await searchVerifiedKnowledge({ query: String(input.query), conversationId: ctx.conversationId });
+      case "get_business_time":
+        return await getBusinessTime();
       case "escalate_to_owner":
         return await escalateToOwner(ctx.conversationId, {
           reason_code: String(input.reason_code),

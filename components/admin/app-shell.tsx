@@ -27,7 +27,9 @@ const NAV_GROUPS = [
     { href: "/admin/policies", label: "Policies", icon: "file" },
   ] },
   { label: "Intelligence", items: [
+    { href: "/admin/analytics", label: "Analytics", icon: "chart" },
     { href: "/admin/digest", label: "Weekly digest", icon: "chart" },
+    { href: "/admin/knowledge", label: "Knowledge base", icon: "book" },
     { href: "/admin/content", label: "Content studio", icon: "pen" },
   ] },
   { label: "System", items: [
@@ -162,7 +164,7 @@ function pageTitle(pathname: string) {
 function MenuIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 7h16M4 12h16M4 17h16" /></svg>; }
 function NavIcon({ name }: { name: string }) {
   const paths: Record<string, string> = {
-    grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z", spark: "m12 3 1.3 5.7L19 10l-5.7 1.3L12 17l-1.3-5.7L5 10l5.7-1.3L12 3Z", chat: "M5 5h14v10H9l-4 4V5Z", calendar: "M5 6h14v14H5zM8 3v6M16 3v6M5 10h14", alert: "M12 3 2.5 20h19L12 3Zm0 6v5m0 3v.1", car: "M4 16V9l2-4h12l2 4v7M4 12h16M7 16v3m10-3v3M7.5 9h9", tag: "M4 4h7l9 9-7 7-9-9V4Zm4 4h.1", file: "M6 3h8l4 4v14H6V3Zm8 0v5h5M9 13h6M9 17h6", chart: "M4 20V10M10 20V4M16 20v-7M22 20H2", pen: "m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Zm9-12 3.5 3.5", plug: "M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-6 6v4", template: "M4 5h16v14H4zM4 10h16M9 10v9", rules: "M4 6h8M4 12h12M4 18h5M16 6h4M20 12h0M13 18h7", tune: "M4 7h4m4 0h8M4 17h10m4 0h2M8 4v6M14 14v6", history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2", users: "M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8-1a3 3 0 1 0 0-6m5 17v-2a4 4 0 0 0-3-3.9",
+    grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z", spark: "m12 3 1.3 5.7L19 10l-5.7 1.3L12 17l-1.3-5.7L5 10l5.7-1.3L12 3Z", chat: "M5 5h14v10H9l-4 4V5Z", calendar: "M5 6h14v14H5zM8 3v6M16 3v6M5 10h14", alert: "M12 3 2.5 20h19L12 3Zm0 6v5m0 3v.1", car: "M4 16V9l2-4h12l2 4v7M4 12h16M7 16v3m10-3v3M7.5 9h9", tag: "M4 4h7l9 9-7 7-9-9V4Zm4 4h.1", file: "M6 3h8l4 4v14H6V3Zm8 0v5h5M9 13h6M9 17h6", chart: "M4 20V10M10 20V4M16 20v-7M22 20H2", book: "M4 5a3 3 0 0 1 3-2h5v17H7a3 3 0 0 0-3 2V5Zm16 0a3 3 0 0 0-3-2h-5v17h5a3 3 0 0 1 3 2V5Z", pen: "m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Zm9-12 3.5 3.5", plug: "M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-6 6v4", template: "M4 5h16v14H4zM4 10h16M9 10v9", rules: "M4 6h8M4 12h12M4 18h5M16 6h4M20 12h0M13 18h7", tune: "M4 7h4m4 0h8M4 17h10m4 0h2M8 4v6M14 14v6", history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2", users: "M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8-1a3 3 0 1 0 0-6m5 17v-2a4 4 0 0 0-3-3.9",
   };
   return <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name] ?? paths.grid} /></svg>;
 }

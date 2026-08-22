@@ -28,6 +28,7 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     cms,
     faqCount,
     knowledgeCount,
+    knowledgeDocumentCount,
   ] = await Promise.all([
     isProviderConfigured("whatsapp"),
     isProviderConfigured("anthropic"),
@@ -44,6 +45,7 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     prisma.cmsSettings.upsert({ where: { id: "primary" }, create: { id: "primary" }, update: {} }),
     prisma.faqEntry.count({ where: { active: true } }),
     prisma.knowledgeEntry.count({ where: { active: true } }),
+    prisma.knowledgeDocument.count({ where: { status: "VERIFIED", OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } }),
   ]);
 
   const presentTypes = new Set(policyTypes.map((p) => p.policyType));
@@ -116,7 +118,7 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
       id: "cms-agent",
       label: "AI tone, sales playbook, and handoff wording authored",
       done: Boolean(cms.agentTone && cms.salesScript && cms.agentHandoffMessage && cms.prohibitedClaims),
-      detail: `${faqCount} FAQs · ${knowledgeCount} knowledge entries`,
+      detail: `${faqCount} FAQs · ${knowledgeCount} verified answers · ${knowledgeDocumentCount} verified documents`,
     },
     {
       id: "cms-published",

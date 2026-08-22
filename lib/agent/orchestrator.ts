@@ -16,6 +16,8 @@ const HARD_ESCALATION_REASONS = new Set([
   "repeated_misunderstanding",
   "explicit_human_request",
 ]);
+const AUTHORITATIVE_TOOLS = new Set(["get_fleet_catalog", "get_vehicle_pricing", "check_availability", "get_policy", "search_knowledge", "get_business_time"]);
+const FACT_SENSITIVE_REQUEST = /\b(price|pricing|cost|rate|available|availability|today|tomorrow|date|time|open|close|address|location|deposit|delivery|cancel|refund|insurance|licen[cs]e|age|document|policy)\b/i;
 
 export type AgentReply = {
   texts: string[];
@@ -101,6 +103,7 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
   const paymentLinks: AgentReply["paymentLinks"] = [];
   let escalated = false;
   let toolRounds = 0;
+  const usedTools = new Set<string>();
 
   let response = await client.messages.create({
     model,
@@ -132,6 +135,7 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUses) {
+      usedTools.add(toolUse.name);
       const result = await executeTool(toolUse.name, toolUse.input, {
         conversationId,
       });
@@ -191,6 +195,18 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text.trim())
     .filter(Boolean);
+
+  const needsVerifiedFact = Boolean(latestInbound?.content && FACT_SENSITIVE_REQUEST.test(latestInbound.content));
+  const usedAuthoritativeSource = [...usedTools].some((name) => AUTHORITATIVE_TOOLS.has(name));
+  const askingForMissingDetails = texts.some((text) => text.includes("?"));
+  if (needsVerifiedFact && !usedAuthoritativeSource && !askingForMissingDetails && !escalated) {
+    const fallback = await escalateToOwner(conversationId, {
+      reason_code: "out_of_scope",
+      conversation_summary: `A factual customer request lacked a verified tool result: ${latestInbound?.content ?? "unknown request"}`,
+      urgency: "high",
+    });
+    return { texts: [fallback.customer_message ?? "Let me verify that with the team and get right back to you."], mediaIds, escalated: true, paymentLinks, toolRounds };
+  }
 
   if (texts.length === 0 && !escalated) {
     const fallback = await escalateToOwner(conversationId, {
