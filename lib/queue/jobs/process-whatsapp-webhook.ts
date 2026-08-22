@@ -47,10 +47,65 @@ export async function processInboundWebhookEvent(eventId: string) {
   if (!event || event.kind !== "INBOUND_MESSAGE") {
     return { skipped: true, reason: "inbound_event_not_found" };
   }
-  const payload = JSON.parse(
+  const payload = hydrateInboundMedia(JSON.parse(
     decryptPii(String(event.payload)) ?? "null",
-  ) as InboundMessageJob;
+  ) as InboundMessageJob);
   return processInboundMessage(payload);
+}
+
+export async function recoverRecentInboundMedia() {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const messages = await prisma.message.findMany({
+    where: {
+      direction: "IN",
+      type: { in: ["image", "video", "audio", "document", "sticker"] },
+      metaMessageId: { not: null },
+      sentAt: { gte: since },
+      attachments: { none: {} },
+    },
+    select: { metaMessageId: true },
+    take: 100,
+  });
+  let enqueued = 0;
+  for (const message of messages) {
+    if (!message.metaMessageId) continue;
+    const event = await prisma.whatsAppWebhookEvent.findUnique({
+      where: { eventId: message.metaMessageId },
+      select: { eventId: true, payload: true },
+    });
+    if (!event) continue;
+    const parsed = JSON.parse(decryptPii(String(event.payload)) ?? "null") as InboundMessageJob | null;
+    const payload = parsed ? hydrateInboundMedia(parsed) : null;
+    if (!payload?.media?.id || !payload.from) continue;
+    const senderHash = piiLookupHash(payload.from);
+    await getInboundMessageQueue().add(
+      "recover-media",
+      { eventId: event.eventId, senderHash },
+      { jobId: `media-recovery-${createHash("sha256").update(event.eventId).digest("hex")}-${Date.now()}` },
+    );
+    enqueued += 1;
+  }
+  return { enqueued };
+}
+
+function hydrateInboundMedia(payload: InboundMessageJob): InboundMessageJob {
+  if (payload.media?.id) return payload;
+  const raw = payload.payload as Record<string, unknown> | null;
+  if (!raw) return payload;
+  const candidate = (raw.image ?? raw.video ?? raw.audio ?? raw.document ?? raw.sticker) as Record<string, unknown> | undefined;
+  if (!candidate || typeof candidate.id !== "string") return payload;
+  return {
+    ...payload,
+    text: payload.text ?? (typeof candidate.caption === "string" ? candidate.caption : undefined),
+    media: {
+      id: candidate.id,
+      mediaType: payload.type,
+      mimeType: typeof candidate.mime_type === "string" ? candidate.mime_type : undefined,
+      sha256: typeof candidate.sha256 === "string" ? candidate.sha256 : undefined,
+      caption: typeof candidate.caption === "string" ? candidate.caption : undefined,
+      fileName: typeof candidate.filename === "string" ? candidate.filename : undefined,
+    },
+  };
 }
 
 async function processDelivery(status: DeliveryPayload) {

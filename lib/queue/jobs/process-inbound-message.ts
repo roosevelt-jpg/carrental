@@ -53,12 +53,14 @@ export async function processInboundMessage(data: InboundMessageJob) {
     where: { metaMessageId: data.metaMessageId },
     include: { attachments: true },
   });
-  if (existing) {
-    const completed = await prisma.processingMetric.findUnique({
+  const completed = existing
+    ? await prisma.processingMetric.findUnique({
       where: { inboundMessageId: data.metaMessageId },
       select: { id: true },
-    });
-    if (completed) return { skipped: true, reason: "duplicate" };
+    })
+    : null;
+  if (existing && completed && (!data.media || existing.attachments.length > 0)) {
+    return { skipped: true, reason: "duplicate" };
   }
 
   const ownerPhone = await getCredential("whatsapp", "owner_phone_number");
@@ -136,6 +138,9 @@ export async function processInboundMessage(data: InboundMessageJob) {
   }
   if (data.media && (!existing || existing.attachments.length === 0)) {
     await persistInboundAttachment(storedMessageId, data);
+  }
+  if (existing && completed) {
+    return { recoveredMedia: true, messageId: existing.id };
   }
   await prisma.conversation.update({
     where: { id: conversation.id },

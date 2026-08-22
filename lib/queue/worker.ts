@@ -133,11 +133,14 @@ for (const worker of [
 }
 
 ensureRecurringJobs()
-  .then(() => {
+  .then(async () => {
+    const { recoverRecentInboundMedia } = await import("./jobs/process-whatsapp-webhook");
+    const recovery = await recoverRecentInboundMedia();
     console.log(
       JSON.stringify({
         msg: "worker_started",
         queues: Object.values(QUEUE_NAMES),
+        recoveredMediaJobs: recovery.enqueued,
       }),
     );
   })
