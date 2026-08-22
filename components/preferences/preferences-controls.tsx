@@ -18,12 +18,11 @@ export function PreferencesControls({ compact = false }: { compact?: boolean }) 
         {theme === "dark" ? <SunIcon /> : <MoonIcon />}
       </button>
       <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs">◎</span>
         <select
           aria-label="Language"
           value={locale}
           onChange={(event) => setLocale(event.target.value)}
-          className={`${compact ? "max-w-32" : "max-w-44"} h-10 appearance-none rounded-full border border-current/20 bg-black/10 py-0 pl-8 pr-8 text-xs text-current`}
+          className={`${compact ? "w-36" : "w-44"} h-10 appearance-none rounded-full border border-current/20 bg-black/10 py-0 pl-4 pr-9 text-xs text-current`}
           title={translationAvailable === false ? "Configure Claude in Integrations to translate this language" : "Language"}
         >
           {LOCALES.map((item) => (
