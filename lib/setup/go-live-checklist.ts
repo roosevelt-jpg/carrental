@@ -128,12 +128,14 @@ export async function getGoLiveChecklist(): Promise<ChecklistItem[]> {
     },
     {
       id: "storage",
-      label: "S3-compatible object storage ready",
+      label: "Durable object storage ready",
       done: storage !== "local",
       detail:
-        storage === "s3"
-          ? "S3-compatible"
-          : "Local disk only — configure the required S3 variables",
+        storage === "vercel-blob"
+          ? "Vercel Blob"
+          : storage === "s3"
+            ? "S3-compatible"
+            : "Local disk only — connect Vercel Blob or configure S3",
     },
     {
       id: "integrations",

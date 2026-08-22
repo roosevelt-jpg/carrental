@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && npm run build:worker && next build",
-    "build:worker": "esbuild ./lib/queue/worker.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/worker.mjs --external:@prisma/client --external:ioredis --external:bullmq --external:@sentry/node --external:@anthropic-ai/sdk --external:stripe --external:@aws-sdk/* --external:@node-rs/argon2 --external:jose --external:zod --external:dotenv",
+    "build:worker": "esbuild ./lib/queue/worker.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/worker.mjs --external:@prisma/client --external:ioredis --external:bullmq --external:@sentry/node --external:@anthropic-ai/sdk --external:stripe --external:@aws-sdk/* --external:@vercel/blob --external:@node-rs/argon2 --external:jose --external:zod --external:dotenv",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -20,8 +20,8 @@
     "db:seed": "prisma db seed",
     "db:generate": "prisma generate",
     "generate-keys": "tsx scripts/generate-keys.ts",
-    "reencrypt-credentials": "tsx scripts/reencrypt-credentials.ts"
-    ,"encrypt-existing-pii": "tsx scripts/encrypt-existing-pii.ts"
+    "reencrypt-credentials": "tsx scripts/reencrypt-credentials.ts",
+    "encrypt-existing-pii": "tsx scripts/encrypt-existing-pii.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -29,6 +29,7 @@
     "@node-rs/argon2": "^2.1.0",
     "@prisma/client": "^6.19.3",
     "@sentry/node": "^10.70.0",
+    "@vercel/blob": "^2.8.0",
     "bullmq": "^6.2.0",
     "dotenv": "^17.4.2",
     "ioredis": "^6.0.0",
@@ -44,9 +45,9 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
-    "esbuild": "^0.28.2",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",

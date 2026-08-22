@@ -10,8 +10,8 @@ Single-tenant admin + webhook service for a luxury car rental business. Integrat
 |------|--------|
 | WhatsApp / Claude / Stripe keys | Encrypted in Postgres (`AES-256-GCM` via `ENCRYPTION_KEY`) |
 | Session / encryption bootstrap | Deployment env: `ENCRYPTION_KEY`, `SESSION_SECRET` |
-| Vehicle photos | S3-compatible object storage; local `public/uploads` only during development |
-| Photo → WhatsApp | Worker downloads the S3 URL, uploads to Meta `/media`, and caches `mediaIds` |
+| Vehicle photos and CMS assets | Vercel Blob first; S3-compatible storage is supported for a later switch |
+| Photo → WhatsApp | Worker downloads the durable object URL, uploads to Meta `/media`, and caches `mediaIds` |
 
 ## Bootstrap env
 
@@ -27,7 +27,8 @@ For the production container, set:
 
 - `APP_BASE_URL=https://carrental.myflynai.com`
 - `DATABASE_URL` / `REDIS_URL` (managed Postgres + Redis)
-- `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, and `S3_SECRET_KEY`
+- `BLOB_READ_WRITE_TOKEN` (injected automatically by the connected Vercel Blob store)
+- Later S3 option: `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, and `S3_SECRET_KEY`
 - The same `ENCRYPTION_KEY` / `SESSION_SECRET` for the app and worker processes
 
 Quote-hold and data-retention controls are edited in the admin CMS, not environment variables.
@@ -59,7 +60,7 @@ start empty and encrypt sensitive content from the first webhook event.
 3. Complete `/admin/setup` or Integrations (WhatsApp, Claude, Stripe).
 4. In Meta: webhook `https://carrental.myflynai.com/api/webhooks/whatsapp`
 5. In Stripe: webhook `https://carrental.myflynai.com/api/webhooks/stripe`
-6. Add fleet + photos (S3 → queued Meta media upload).
+6. Add fleet + photos (Vercel Blob or S3 → queued Meta media upload).
 7. Walk `/admin/go-live` and run a real UAT conversation.
 8. Open `/admin/content`, complete the business/brand/AI content, preview the draft, and publish it.
 9. Open Message Templates, author real wording and review samples, then use **Submit to Meta**. The access token needs `whatsapp_business_management` as well as messaging permission. Subscribe the WABA webhook to template status updates; the dashboard also supports manual status sync.

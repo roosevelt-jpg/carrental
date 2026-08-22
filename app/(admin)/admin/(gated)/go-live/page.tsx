@@ -59,9 +59,11 @@ export default async function GoLivePage() {
           <div>
             <dt className="text-muted">Photo storage</dt>
             <dd>
-              {storage === "s3"
-                ? "S3-compatible"
-                : "Local fallback (configure S3 before launch)"}
+              {storage === "vercel-blob"
+                ? "Vercel Blob"
+                : storage === "s3"
+                  ? "S3-compatible"
+                  : "Local fallback (connect Vercel Blob or S3 before launch)"}
             </dd>
           </div>
         </dl>

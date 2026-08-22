@@ -26,7 +26,11 @@ export default async function IntegrationsPage() {
     isProviderConfigured("stripe"),
   ]);
   const storage = getStorageBackend();
-  const storageLabel = storage === "s3" ? "S3-compatible object storage" : "local development disk";
+  const storageLabel = storage === "vercel-blob"
+    ? "Vercel Blob"
+    : storage === "s3"
+      ? "S3-compatible object storage"
+      : "local development disk";
 
   return (
     <div>

@@ -3,12 +3,17 @@ import {
   S3Client,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { del, put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { getAppBaseUrl } from "@/lib/env";
 
-export type StorageBackend = "s3" | "local";
+export type StorageBackend = "vercel-blob" | "s3" | "local";
+
+function blobConfigured() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
 
 function s3Configured() {
   return Boolean(
@@ -31,8 +36,9 @@ function getS3Client() {
   });
 }
 
-/** S3-compatible storage is the production backend; local disk is development-only. */
+/** Prefer Vercel Blob, then S3-compatible storage; local disk is development-only. */
 export function getStorageBackend(): StorageBackend {
+  if (blobConfigured()) return "vercel-blob";
   if (s3Configured()) return "s3";
   return "local";
 }
@@ -50,6 +56,16 @@ export async function uploadVehiclePhoto(params: {
   const ext = extensionFor(params.contentType, params.originalName);
   const key = `vehicles/${params.vehicleId}/${randomUUID()}${ext}`;
   const backend = getStorageBackend();
+
+  if (backend === "vercel-blob") {
+    const blob = await put(key, params.bytes, {
+      access: "public",
+      contentType: params.contentType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+    });
+    return { url: blob.url, key: blob.pathname || key };
+  }
 
   if (backend === "s3") {
     const bucket = process.env.S3_BUCKET!;
@@ -93,6 +109,16 @@ export async function uploadCmsAsset(params: {
   const key = `cms/${randomUUID()}${ext}`;
   const backend = getStorageBackend();
 
+  if (backend === "vercel-blob") {
+    const blob = await put(key, params.bytes, {
+      access: "public",
+      contentType: params.contentType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+    });
+    return { url: blob.url, key: blob.pathname || key };
+  }
+
   if (backend === "s3") {
     const bucket = process.env.S3_BUCKET!;
     await getS3Client().send(
@@ -129,6 +155,16 @@ export async function uploadKnowledgeDocument(params: {
   const key = `knowledge/${randomUUID()}${safeExtension}`;
   const backend = getStorageBackend();
 
+  if (backend === "vercel-blob") {
+    const blob = await put(key, params.bytes, {
+      access: "public",
+      contentType: params.contentType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      addRandomSuffix: false,
+    });
+    return { url: blob.url, key: blob.pathname || key };
+  }
+
   if (backend === "s3") {
     const bucket = process.env.S3_BUCKET!;
     await getS3Client().send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: params.bytes, ContentType: params.contentType }));
@@ -156,6 +192,17 @@ export async function deleteStoredObject(urlOrKey: string) {
     } catch {
       // ignore missing file
     }
+    return;
+  }
+
+  if (
+    blobConfigured() &&
+    (urlOrKey.includes("blob.vercel-storage.com") ||
+      urlOrKey.startsWith("vehicles/") ||
+      urlOrKey.startsWith("knowledge/") ||
+      urlOrKey.startsWith("cms/"))
+  ) {
+    await del(urlOrKey, { token: process.env.BLOB_READ_WRITE_TOKEN });
     return;
   }
 
