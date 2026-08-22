@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { SetupStatus } from "@/lib/setup/status";
 
 const STEPS = [
@@ -39,11 +40,6 @@ export function SetupWizard({
     }
   }
 
-  function skipToAdmin() {
-    router.push("/admin/settings/integrations");
-    router.refresh();
-  }
-
   return (
     <div className="mt-10 rounded-2xl border border-line bg-panel p-8">
       <ol className="mb-8 flex flex-wrap gap-2 text-[11px] uppercase tracking-widest text-muted">
@@ -72,7 +68,6 @@ export function SetupWizard({
           setError={setError}
           webhookUrl={status.whatsappWebhookUrl}
           onDone={refresh}
-          onSkip={skipToAdmin}
         />
       ) : null}
       {step === 2 ? (
@@ -83,7 +78,6 @@ export function SetupWizard({
           models={models}
           defaultModel={defaultModel}
           onDone={refresh}
-          onSkip={skipToAdmin}
         />
       ) : null}
       {step === 3 ? (
@@ -93,7 +87,6 @@ export function SetupWizard({
           setError={setError}
           webhookUrl={status.stripeWebhookUrl}
           onDone={refresh}
-          onSkip={skipToAdmin}
         />
       ) : null}
       {step === 4 ? (
@@ -102,7 +95,6 @@ export function SetupWizard({
           setBusy={setBusy}
           setError={setError}
           onDone={refresh}
-          onSkip={skipToAdmin}
         />
       ) : null}
       {step === 5 ? (
@@ -111,11 +103,19 @@ export function SetupWizard({
           setBusy={setBusy}
           setError={setError}
           onDone={refresh}
-          onSkip={skipToAdmin}
         />
       ) : null}
       {step >= 6 ? (
-        <p className="text-muted">Setup complete. Redirecting to the dashboard.</p>
+        <div>
+          <h2 className="font-serif text-3xl">Complete launch readiness</h2>
+          <p className="mt-3 text-muted">
+            Core onboarding is complete. {status.readinessDone}/{status.readinessTotal} required go-live checks currently pass. Finish the checklist and owner UAT before activation is marked ready.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link className="btn-gold" href="/admin/go-live">Open go-live checklist</Link>
+            <Link className="btn-ghost" href="/admin/dashboard">Continue configuring</Link>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -175,7 +175,6 @@ function WhatsAppStep({
   setError,
   webhookUrl,
   onDone,
-  onSkip,
 }: StepProps & { webhookUrl: string }) {
   const verifyToken = useMemo(() => randomToken(), []);
   const [accessToken, setAccessToken] = useState("");
@@ -204,8 +203,7 @@ function WhatsAppStep({
       <h2 className="font-serif text-3xl">Connect WhatsApp</h2>
       <p className="text-sm text-muted">
         Paste this callback URL and verify token into Meta&apos;s App Dashboard,
-        then enter the Cloud API credentials. You can skip and add these later
-        under Integrations.
+        then enter the Cloud API credentials.
       </p>
       <CopyField label="Callback URL" value={webhookUrl} />
       <CopyField label="Verify token" value={verifyToken} />
@@ -217,7 +215,6 @@ function WhatsAppStep({
         <button className="btn-gold" disabled={busy} type="submit">
           Save and test
         </button>
-        <SkipButton onSkip={onSkip} />
       </div>
     </form>
   );
@@ -230,7 +227,6 @@ function ClaudeStep({
   models,
   defaultModel,
   onDone,
-  onSkip,
 }: StepProps & { models: string[]; defaultModel: string }) {
   const [apiKey, setApiKey] = useState("");
   const [modelId, setModelId] = useState(defaultModel);
@@ -263,7 +259,6 @@ function ClaudeStep({
         <button className="btn-gold" disabled={busy} type="submit">
           Save and test
         </button>
-        <SkipButton onSkip={onSkip} />
       </div>
     </form>
   );
@@ -275,7 +270,6 @@ function StripeStep({
   setError,
   webhookUrl,
   onDone,
-  onSkip,
 }: StepProps & { webhookUrl: string }) {
   const [secretKey, setSecretKey] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
@@ -308,13 +302,12 @@ function StripeStep({
         <button className="btn-gold" disabled={busy} type="submit">
           Save and test
         </button>
-        <SkipButton onSkip={onSkip} />
       </div>
     </form>
   );
 }
 
-function VehicleStep({ busy, setBusy, setError, onDone, onSkip }: StepProps) {
+function VehicleStep({ busy, setBusy, setError, onDone }: StepProps) {
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [category, setCategory] = useState("");
@@ -347,7 +340,7 @@ function VehicleStep({ busy, setBusy, setError, onDone, onSkip }: StepProps) {
     >
       <h2 className="font-serif text-3xl">Add your first vehicle</h2>
       <p className="text-sm text-muted">
-        Enter a real car from the fleet. You can skip and add vehicles later under Fleet.
+        Enter a real active vehicle from the fleet. This is required before the sales agent can operate.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Make" value={make} onChange={setMake} />
@@ -361,13 +354,12 @@ function VehicleStep({ busy, setBusy, setError, onDone, onSkip }: StepProps) {
         <button className="btn-gold" disabled={busy} type="submit">
           Add vehicle
         </button>
-        <SkipButton onSkip={onSkip} />
       </div>
     </form>
   );
 }
 
-function OwnerPhoneStep({ busy, setBusy, setError, onDone, onSkip }: StepProps) {
+function OwnerPhoneStep({ busy, setBusy, setError, onDone }: StepProps) {
   const [phone, setPhone] = useState("");
 
   return (
@@ -390,7 +382,6 @@ function OwnerPhoneStep({ busy, setBusy, setError, onDone, onSkip }: StepProps) 
         <button className="btn-gold" disabled={busy} type="submit">
           Finish setup
         </button>
-        <SkipButton onSkip={onSkip} />
       </div>
     </form>
   );
@@ -401,17 +392,7 @@ type StepProps = {
   setBusy: (value: boolean) => void;
   setError: (value: string | null) => void;
   onDone: () => Promise<void>;
-  onSkip?: () => void;
 };
-
-function SkipButton({ onSkip }: { onSkip?: () => void }) {
-  if (!onSkip) return null;
-  return (
-    <button className="btn-ghost" type="button" onClick={onSkip}>
-      Skip for now — open Integrations
-    </button>
-  );
-}
 
 function Field({
   label,

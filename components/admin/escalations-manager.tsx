@@ -8,6 +8,7 @@ type EscalationRow = {
   referenceCode: string;
   reasonCode: string;
   contextSummary: string;
+  suggestedReply: string | null;
   status: string;
   urgency: string;
   createdAt: string;
@@ -63,6 +64,7 @@ export function EscalationsManager({ escalations }: { escalations: EscalationRow
             {new Date(item.createdAt).toLocaleString()}
           </p>
           <p className="mt-3 whitespace-pre-wrap text-sm">{item.contextSummary}</p>
+          {item.suggestedReply ? <div className="mt-4 rounded-xl border border-gold/20 bg-gold/5 p-4"><p className="text-[10px] uppercase tracking-widest text-gold">AI suggested reply</p><p className="mt-2 whitespace-pre-wrap text-sm">{item.suggestedReply}</p><button type="button" className="mt-3 text-xs text-gold" onClick={() => setReplyById((current) => ({ ...current, [item.id]: item.suggestedReply ?? "" }))}>Use this reply</button></div> : null}
           {item.status === "OPEN" ? (
             <div className="mt-4 space-y-3">
               <textarea

@@ -3,6 +3,8 @@ import { Suspense } from "react";
 import type { ConversationStatus, OutcomeType, Prisma } from "@prisma/client";
 import { ConversationFilters } from "@/components/admin/conversation-filters";
 import { prisma } from "@/lib/db";
+import { LiveRefresh } from "@/components/admin/live-refresh";
+import { decryptPii } from "@/lib/privacy/pii";
 
 type SearchParams = Promise<{ status?: string; outcome?: string }>;
 
@@ -38,7 +40,7 @@ export default async function ConversationsPage({
 
   return (
     <div>
-      <h1 className="font-serif text-4xl">Conversations</h1>
+      <div className="flex items-center justify-between"><h1 className="font-serif text-4xl">Conversations</h1><LiveRefresh /></div>
       <p className="mt-3 text-muted">
         {conversations.length === 0
           ? "No conversations match these filters."
@@ -55,7 +57,7 @@ export default async function ConversationsPage({
               className="block rounded-xl border border-line bg-panel p-5 hover:border-gold/40"
             >
               <div className="flex items-center justify-between gap-3">
-                <p className="text-gold-2">{conversation.customer.whatsappId}</p>
+                <p className="text-gold-2">{decryptPii(conversation.customer.whatsappId)}</p>
                 <div className="flex items-center gap-3 text-xs uppercase tracking-widest text-muted">
                   {conversation.outcome ? (
                     <span className="text-gold">{conversation.outcome.outcome}</span>

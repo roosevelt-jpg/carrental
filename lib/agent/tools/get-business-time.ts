@@ -3,9 +3,17 @@ import { getCmsSettings } from "@/lib/cms/content";
 export async function getBusinessTime() {
   const cms = await getCmsSettings();
   const now = new Date();
-  let timezone = cms.timezone || "UTC";
-  try { new Intl.DateTimeFormat("en", { timeZone: timezone }).format(now); } catch { timezone = "UTC"; }
+  const timezone = cms.timezone.trim();
+  if (!timezone) {
+    return { ok: false, error: "Business timezone is not configured. Escalate rather than assume one." };
+  }
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(now);
+  } catch {
+    return { ok: false, error: "Configured business timezone is invalid. Escalate rather than assume one." };
+  }
   return {
+    ok: true,
     timezone,
     iso_utc: now.toISOString(),
     local_date: new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now),

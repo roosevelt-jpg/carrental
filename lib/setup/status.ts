@@ -8,6 +8,7 @@ import {
   getCredential,
   isProviderConfigured,
 } from "@/lib/settings/settings-service";
+import { getGoLiveChecklist, isGoLiveReady } from "@/lib/setup/go-live-checklist";
 
 export type SetupStatus = {
   hasUsers: boolean;
@@ -16,6 +17,10 @@ export type SetupStatus = {
   stripe: boolean;
   hasVehicle: boolean;
   hasEscalationContact: boolean;
+  coreComplete: boolean;
+  activationReady: boolean;
+  readinessDone: number;
+  readinessTotal: number;
   complete: boolean;
   currentStep: number;
   whatsappWebhookUrl: string;
@@ -48,6 +53,10 @@ export async function getSetupStatus(): Promise<SetupStatus> {
   ];
   const firstIncomplete = flags.findIndex((flag) => !flag);
   const currentStep = firstIncomplete === -1 ? 6 : firstIncomplete;
+  const coreComplete = flags.every(Boolean);
+  const readiness = coreComplete ? await getGoLiveChecklist() : [];
+  const requiredReadiness = readiness.filter((item) => item.required !== false);
+  const activationReady = coreComplete && isGoLiveReady(readiness);
 
   return {
     hasUsers,
@@ -56,7 +65,11 @@ export async function getSetupStatus(): Promise<SetupStatus> {
     stripe,
     hasVehicle,
     hasEscalationContact,
-    complete: flags.every(Boolean),
+    coreComplete,
+    activationReady,
+    readinessDone: requiredReadiness.filter((item) => item.done).length,
+    readinessTotal: requiredReadiness.length,
+    complete: activationReady,
     currentStep,
     whatsappWebhookUrl: getWhatsAppWebhookUrl(),
     stripeWebhookUrl: getStripeWebhookUrl(),

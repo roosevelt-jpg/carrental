@@ -17,7 +17,7 @@ export default async function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-6">
       <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-10">
-        <p className="text-xs uppercase tracking-[0.22em] text-gold">Atelier Fleet</p>
+        <p className="text-xs uppercase tracking-[0.22em] text-gold">Administration</p>
         <h1 className="mt-3 font-serif text-4xl">Sign in</h1>
         <LoginForm />
       </div>

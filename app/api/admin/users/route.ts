@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { hashPassword } from "@/lib/auth/password";
 import { isSession, requireSession } from "@/lib/auth/guards";
+import { createInvitationToken } from "@/lib/auth/invitations";
+import { getAppBaseUrl } from "@/lib/env";
 
 const createSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(10),
   role: z.enum(["OWNER", "ADMIN", "STAFF"]).default("STAFF"),
 });
 
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const parsed = createSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Valid email, password (10+ chars), and role are required" },
+      { error: "A valid email and role are required" },
       { status: 400 },
     );
   }
@@ -47,14 +47,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Email already in use" }, { status: 409 });
   }
 
-  const user = await prisma.user.create({
+  const { token, tokenHash } = createInvitationToken();
+  await prisma.userInvitation.updateMany({ where: { email: parsed.data.email.toLowerCase().trim(), acceptedAt: null }, data: { acceptedAt: new Date() } });
+  const invitation = await prisma.userInvitation.create({
     data: {
       email: parsed.data.email.toLowerCase().trim(),
-      passwordHash: await hashPassword(parsed.data.password),
       role: parsed.data.role,
+      tokenHash,
+      invitedByEmail: session.email,
+      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
     },
-    select: { id: true, email: true, role: true, createdAt: true },
   });
-
-  return NextResponse.json({ user }, { status: 201 });
+  const inviteUrl = `${getAppBaseUrl()}/admin/invite/${token}`;
+  return NextResponse.json({ invitation: { id: invitation.id, email: invitation.email, role: invitation.role, expiresAt: invitation.expiresAt, inviteUrl } }, { status: 201 });
 }

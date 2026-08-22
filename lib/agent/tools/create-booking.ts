@@ -7,13 +7,16 @@ export function validatePaidCheckout(input: {
   expectedAmountMinor: number;
   actualAmountMinor: number;
   currency: string;
+  expectedCurrency: string | null;
   paymentStatus: string;
 }) {
   if (input.paymentStatus !== "paid") return "Checkout Session is not paid";
   if (input.expectedSessionId !== input.actualSessionId) {
     return "Checkout Session does not belong to this quote";
   }
-  if (input.currency.toLowerCase() !== "aed") return "Unexpected payment currency";
+  if (!input.expectedCurrency || input.currency.toLowerCase() !== input.expectedCurrency.toLowerCase()) {
+    return "Unexpected payment currency";
+  }
   if (input.actualAmountMinor !== input.expectedAmountMinor) {
     return "Paid amount does not match the quote total";
   }
@@ -50,6 +53,7 @@ export async function createBooking(input: {
     expectedAmountMinor: expectedMinorUnits,
     actualAmountMinor: input.amount_total,
     currency: input.currency,
+    expectedCurrency: quote.currency,
     paymentStatus: input.payment_status,
   });
   if (validationError) return { ok: false, error: validationError };

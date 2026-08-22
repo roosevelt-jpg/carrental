@@ -6,7 +6,6 @@ const scriptSources = process.env.NODE_ENV === "development"
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  deploymentId: process.env.DEPLOYMENT_VERSION,
   // Standalone is for Docker. On Vercel it breaks the platform build
   // (ENOENT next-server.js.nft.json) and leaves the domain with no Ready deploy.
   ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
@@ -16,18 +15,6 @@ const nextConfig: NextConfig = {
     "ioredis",
     "@sentry/node",
   ],
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "*.public.blob.vercel-storage.com",
-      },
-      {
-        protocol: "https",
-        hostname: "*.blob.vercel-storage.com",
-      },
-    ],
-  },
   async headers() {
     return [
       {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { decryptPii } from "@/lib/privacy/pii";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -32,7 +33,7 @@ export default async function BookingDetailPage({ params }: Params) {
         </div>
         <div>
           <dt className="text-xs uppercase tracking-widest text-muted">Customer</dt>
-          <dd className="mt-1">{booking.customer.whatsappId}</dd>
+          <dd className="mt-1">{decryptPii(booking.customer.whatsappId)}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-widest text-muted">Dates</dt>
@@ -43,7 +44,9 @@ export default async function BookingDetailPage({ params }: Params) {
         </div>
         <div>
           <dt className="text-xs uppercase tracking-widest text-muted">Total</dt>
-          <dd className="mt-1">{booking.quote.totalPrice.toString()} AED</dd>
+          <dd className="mt-1">
+            {booking.quote.totalPrice.toString()} {booking.quote.currency ?? "Currency not recorded"}
+          </dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-widest text-muted">Status</dt>

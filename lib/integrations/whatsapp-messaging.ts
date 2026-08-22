@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getCredential } from "@/lib/settings/settings-service";
 import { sendTemplateMessage, sendTextMessage } from "@/lib/integrations/whatsapp-client";
 import { prepareNotification } from "@/lib/cms/content";
+import { piiLookupHash } from "@/lib/privacy/pii";
 
 const CUSTOMER_SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -35,7 +36,7 @@ export async function sendCustomerText(params: {
   templateParameters?: string[];
 }) {
   const customer = await prisma.customer.findUnique({
-    where: { whatsappId: params.to },
+    where: { whatsappIdHash: piiLookupHash(params.to) },
     select: { lastInboundAt: true },
   });
   if (isWithinCustomerServiceWindow(customer?.lastInboundAt)) {

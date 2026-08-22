@@ -15,6 +15,9 @@ export default async function AdminIndexPage() {
     if (!session) {
       redirect("/admin/login");
     }
+    if (!setup.coreComplete) {
+      redirect("/admin/setup");
+    }
     redirect("/admin/dashboard");
   } catch (error) {
     // redirect() throws NEXT_REDIRECT — must not be treated as a failure.

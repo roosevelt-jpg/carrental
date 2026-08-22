@@ -6,12 +6,15 @@ import {
   markMessageRead,
   sendCtaUrlMessage,
   sendImageByMediaId,
+  isExpiredMediaError,
 } from "@/lib/integrations/whatsapp-client";
+import { processMediaReupload } from "@/lib/queue/jobs/media-reupload";
 import {
   isWithinCustomerServiceWindow,
   sendCustomerText,
 } from "@/lib/integrations/whatsapp-messaging";
 import { getCmsSettings, prepareNotification } from "@/lib/cms/content";
+import { encryptPii, piiLookupHash } from "@/lib/privacy/pii";
 
 function sentMessageId(result: unknown) {
   return (result as { messages?: Array<{ id?: string }> }).messages?.[0]?.id ?? null;
@@ -31,7 +34,7 @@ async function recordOutbound(params: {
       conversationId: params.conversationId,
       direction: "OUT",
       type: params.type,
-      content: params.content,
+      content: encryptPii(params.content),
       mediaIds: params.mediaIds ?? [],
       metaMessageId: sentMessageId(params.result),
       deliveryStatus: "ACCEPTED",
@@ -50,7 +53,7 @@ export async function deliverAgentReply(params: {
   sourceMessageId: string;
 }) {
   const customer = await prisma.customer.findUnique({
-    where: { whatsappId: params.to },
+    where: { whatsappIdHash: piiLookupHash(params.to) },
     select: { lastInboundAt: true },
   });
   const inWindow = isWithinCustomerServiceWindow(customer?.lastInboundAt);
@@ -124,7 +127,18 @@ export async function deliverAgentReply(params: {
       continue;
     }
     await sleep(1000);
-    const result = await sendImageByMediaId(params.to, mediaId);
+    let result;
+    try {
+      result = await sendImageByMediaId(params.to, mediaId);
+    } catch (error) {
+      if (!isExpiredMediaError(error)) throw error;
+      const vehicle = await prisma.vehicle.findFirst({ where: { mediaIds: { has: mediaId } }, select: { id: true, mediaIds: true } });
+      if (!vehicle) throw error;
+      const refreshed = await processMediaReupload({ vehicleId: vehicle.id });
+      const replacement = Array.isArray(refreshed.mediaIds) ? refreshed.mediaIds[vehicle.mediaIds.indexOf(mediaId)] : undefined;
+      if (typeof replacement !== "string") throw error;
+      result = await sendImageByMediaId(params.to, replacement);
+    }
     await recordOutbound({
       conversationId: params.conversationId,
       type: "image",

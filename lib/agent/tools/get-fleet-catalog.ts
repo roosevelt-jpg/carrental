@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { parseDateOnly, rangesOverlap } from "@/lib/agent/dates";
+import { getCmsSettings } from "@/lib/cms/content";
 
 export async function getFleetCatalog(input: {
   start_date: string;
@@ -10,7 +11,7 @@ export async function getFleetCatalog(input: {
   const start = parseDateOnly(input.start_date);
   const end = parseDateOnly(input.end_date);
 
-  const vehicles = await prisma.vehicle.findMany({
+  const [vehicles, cms] = await Promise.all([prisma.vehicle.findMany({
     where: {
       active: true,
       ...(input.category
@@ -22,7 +23,10 @@ export async function getFleetCatalog(input: {
     },
     include: { availabilityBlocks: true },
     orderBy: [{ dailyRate: "asc" }, { make: "asc" }],
-  });
+  }), getCmsSettings()]);
+  if (!cms.currency.trim()) {
+    return { ok: false, error: "Business currency is not configured" };
+  }
 
   const available = vehicles
     .filter(
@@ -48,6 +52,7 @@ export async function getFleetCatalog(input: {
     start_date: input.start_date,
     end_date: input.end_date,
     count: available.length,
+    currency: cms.currency,
     vehicles: available,
   };
 }

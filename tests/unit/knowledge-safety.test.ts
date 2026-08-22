@@ -13,7 +13,7 @@ describe("knowledge safety", () => {
     expect(KNOWLEDGE_DOCUMENT_TYPES).toContain("application/pdf");
     expect(KNOWLEDGE_DOCUMENT_TYPES).toContain("text/markdown");
     expect(resolveKnowledgeMimeType("delivery.md", "")).toBe("text/markdown");
-    const source = "Airport delivery fee: AED 250.\nValid until 2026-12-31.";
+    const source = "Owner-authored operational condition.\nValid until the recorded expiry date.";
     await expect(extractKnowledgeContent(Buffer.from(source), "text/markdown", "delivery.md")).resolves.toBe(source);
   });
 

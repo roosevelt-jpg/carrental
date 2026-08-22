@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { decryptPii } from "@/lib/privacy/pii";
 
 export default async function BookingsPage() {
   const bookings = await prisma.booking.findMany({
@@ -41,7 +42,7 @@ export default async function BookingsPage() {
                     {booking.quote.vehicle.make} {booking.quote.vehicle.model}
                   </Link>
                 </td>
-                <td className="py-4">{booking.customer.whatsappId}</td>
+                <td className="py-4">{decryptPii(booking.customer.whatsappId)}</td>
                 <td className="py-4">
                   {booking.quote.startDate.toISOString().slice(0, 10)} →{" "}
                   {booking.quote.endDate.toISOString().slice(0, 10)}

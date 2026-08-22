@@ -20,6 +20,7 @@ const EDITABLE_KEYS = [
   "heroPrimaryHref", "heroSecondaryLabel", "heroSecondaryHref", "aboutTitle", "aboutBody",
   "fleetTitle", "fleetBody", "faqTitle", "contactTitle", "contactBody", "footerText",
   "agentTone", "salesScript", "agentGreeting", "agentHandoffMessage", "prohibitedClaims",
+  "quoteHoldMinutes", "dataRetentionDays",
   "sitePublished",
 ] as const;
 
@@ -28,6 +29,7 @@ const BUSINESS_FIELDS = [
   ["businessDescription", "Business description", "textarea"], ["phone", "Phone"],
   ["email", "Email"], ["whatsappDisplay", "WhatsApp display number"], ["address", "Address"],
   ["city", "City"], ["country", "Country"], ["timezone", "Timezone"], ["currency", "Currency"],
+  ["quoteHoldMinutes", "Quote hold (minutes)"], ["dataRetentionDays", "Customer data retention (days)"],
 ] as const;
 const WEBSITE_FIELDS = [
   ["seoTitle", "SEO title"], ["seoDescription", "SEO description", "textarea"],

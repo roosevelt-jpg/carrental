@@ -33,7 +33,7 @@ describe("CMS content templates", () => {
       metaTemplateId: null,
       bodyText: "Booking {{booking_id}} is confirmed for {{vehicle}}.",
       bodyVariables: ["booking_id", "vehicle"],
-      sampleValues: ["BK-100", "Mercedes G63"],
+      sampleValues: ["first real value", "second real value"],
       headerText: "Booking confirmed",
       footerText: "Thank you",
       buttonType: "NONE",
@@ -50,7 +50,7 @@ describe("CMS content templates", () => {
     expect(payload.components).toContainEqual({
       type: "BODY",
       text: "Booking {{1}} is confirmed for {{2}}.",
-      example: { body_text: [["BK-100", "Mercedes G63"]] },
+      example: { body_text: [["first real value", "second real value"]] },
     });
   });
 

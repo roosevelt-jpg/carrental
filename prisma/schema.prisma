@@ -18,6 +18,19 @@ model User {
   updatedAt    DateTime @updatedAt
 }
 
+model UserInvitation {
+  id             String    @id @default(cuid())
+  email          String
+  role           UserRole  @default(STAFF)
+  tokenHash      String    @unique
+  invitedByEmail String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([email, expiresAt])
+}
+
 enum UserRole {
   OWNER
   ADMIN
@@ -103,27 +116,29 @@ enum PolicyType {
 }
 
 model Customer {
-  id            String    @id @default(cuid())
-  whatsappId    String    @unique
-  name          String?
-  verifiedDocs  Boolean   @default(false)
-  optInAt       DateTime?
-  lastInboundAt DateTime?
-  anonymizedAt  DateTime?
-  createdAt     DateTime  @default(now())
+  id             String    @id @default(cuid())
+  whatsappId     String    @unique
+  whatsappIdHash String?   @unique
+  name           String?
+  verifiedDocs   Boolean   @default(false)
+  optInAt        DateTime?
+  lastInboundAt  DateTime?
+  anonymizedAt   DateTime?
+  createdAt      DateTime  @default(now())
 
   conversations Conversation[]
   bookings      Booking[]
 }
 
 model Conversation {
-  id            String             @id @default(cuid())
-  customerId    String
-  customer      Customer           @relation(fields: [customerId], references: [id])
-  status        ConversationStatus @default(ACTIVE)
-  startedAt     DateTime           @default(now())
-  lastMessageAt DateTime           @default(now())
-  summary       String?
+  id                    String             @id @default(cuid())
+  customerId            String
+  customer              Customer           @relation(fields: [customerId], references: [id])
+  status                ConversationStatus @default(ACTIVE)
+  startedAt             DateTime           @default(now())
+  lastMessageAt         DateTime           @default(now())
+  summary               String?
+  misunderstandingCount Int                @default(0)
 
   messages          Message[]
   quotes            Quote[]
@@ -183,6 +198,7 @@ model Quote {
   startDate           DateTime
   endDate             DateTime
   totalPrice          Decimal            @db.Decimal(12, 2)
+  currency            String?
   depositDue          Decimal            @db.Decimal(12, 2)
   status              QuoteStatus        @default(PENDING)
   createdAt           DateTime           @default(now())
@@ -227,6 +243,7 @@ model Escalation {
   conversation               Conversation     @relation(fields: [conversationId], references: [id])
   reasonCode                 String
   contextSummary             String
+  suggestedReply             String?
   status                     EscalationStatus @default(OPEN)
   ownerReply                 String?
   referenceCode              String           @unique
@@ -237,6 +254,53 @@ model Escalation {
   ownerNotificationMessageId String?          @unique
 
   @@index([status, createdAt])
+}
+
+model WhatsAppWebhookEvent {
+  id          String             @id @default(cuid())
+  eventId     String             @unique
+  kind        WhatsAppEventKind
+  payload     Json
+  status      WebhookEventStatus @default(PROCESSING)
+  receivedAt  DateTime           @default(now())
+  queuedAt    DateTime?
+  processedAt DateTime?
+  error       String?
+
+  @@index([status, receivedAt])
+}
+
+enum WhatsAppEventKind {
+  INBOUND_MESSAGE
+  DELIVERY_STATUS
+  TEMPLATE_STATUS
+}
+
+model PipelineLatencyMetric {
+  id        String   @id @default(cuid())
+  stage     String
+  latencyMs Int
+  reference String?
+  createdAt DateTime @default(now())
+
+  @@index([stage, createdAt])
+}
+
+model ProviderHealth {
+  id             String    @id
+  rateLimitedAt  DateTime?
+  retryAfterSecs Int?
+  usagePercent   Int?
+  lastSuccessAt  DateTime?
+  lastStatusCode Int?
+  updatedAt      DateTime  @updatedAt
+}
+
+model IntegrationTestResult {
+  provider String   @id
+  ok       Boolean
+  detail   String
+  testedAt DateTime @default(now())
 }
 
 model ProcessingMetric {
@@ -272,6 +336,18 @@ model WorkerHeartbeat {
   startedAt DateTime
   updatedAt DateTime @updatedAt
   metadata  Json?
+}
+
+model ActivationReview {
+  id                      String   @id @default("primary")
+  metaWebhookConfirmed    Boolean  @default(false)
+  stripeWebhookConfirmed  Boolean  @default(false)
+  escalationRulesReviewed Boolean  @default(false)
+  stripeModeReviewed      Boolean  @default(false)
+  sentryTestConfirmed     Boolean  @default(false)
+  ownerUatSignedOff       Boolean  @default(false)
+  confirmedByEmail        String?
+  updatedAt               DateTime @updatedAt
 }
 
 enum WebhookEventStatus {
@@ -385,45 +461,47 @@ enum MessageTemplateStatus {
 
 model CmsSettings {
   id                  String        @id @default("primary")
-  businessName        String        @default("Atelier Fleet")
+  businessName        String        @default("")
   legalName           String?
-  tagline             String        @default("Exceptional cars. Effortless journeys.")
-  businessDescription String        @default("A curated luxury car rental experience in Dubai.")
+  tagline             String        @default("")
+  businessDescription String        @default("")
   phone               String?
   email               String?
   whatsappDisplay     String?
   address             String?
-  city                String        @default("Dubai")
-  country             String        @default("United Arab Emirates")
-  timezone            String        @default("Asia/Dubai")
-  currency            String        @default("AED")
+  city                String        @default("")
+  country             String        @default("")
+  timezone            String        @default("")
+  currency            String        @default("")
   logoUrl             String?
   heroImageUrl        String?
   primaryColor        String        @default("#c6a36a")
   accentColor         String        @default("#e0c48a")
   backgroundColor     String        @default("#100e0c")
-  seoTitle            String        @default("Atelier Fleet | Luxury Car Rental Dubai")
-  seoDescription      String        @default("Reserve a curated luxury vehicle in Dubai with personal WhatsApp assistance.")
-  heroEyebrow         String        @default("Luxury car rental · Dubai")
-  heroTitle           String        @default("The right car, arranged around you.")
-  heroSubtitle        String        @default("Explore our fleet and speak with our concierge on WhatsApp for availability, pricing, and a secure reservation.")
-  heroPrimaryLabel    String        @default("View the fleet")
+  seoTitle            String        @default("")
+  seoDescription      String        @default("")
+  heroEyebrow         String        @default("")
+  heroTitle           String        @default("")
+  heroSubtitle        String        @default("")
+  heroPrimaryLabel    String        @default("")
   heroPrimaryHref     String        @default("#fleet")
-  heroSecondaryLabel  String        @default("Chat on WhatsApp")
+  heroSecondaryLabel  String        @default("")
   heroSecondaryHref   String        @default("#contact")
-  aboutTitle          String        @default("A considered rental experience")
-  aboutBody           String        @default("From first enquiry to handover, every detail is handled with clarity, discretion, and local expertise.")
-  fleetTitle          String        @default("Curated fleet")
-  fleetBody           String        @default("Live rates and vehicle details are managed directly by our team.")
-  faqTitle            String        @default("Frequently asked questions")
-  contactTitle        String        @default("Plan your drive")
-  contactBody         String        @default("Tell us your dates and preferred vehicle. Our WhatsApp concierge will confirm live availability and pricing.")
-  footerText          String        @default("Luxury car rental in Dubai.")
-  agentTone           String        @default("Warm, discreet, concise, confident, and hospitality-led. Never pressure the customer.")
-  salesScript         String        @default("Understand dates, vehicle preference, delivery needs, and eligibility. Present only verified options, answer objections honestly, then offer a secure quote and payment link.")
-  agentGreeting       String        @default("Welcome. How may I help with your Dubai car rental?")
-  agentHandoffMessage String        @default("I’m bringing in a member of our team to confirm this for you.")
-  prohibitedClaims    String        @default("Never promise unverified availability, discounts, eligibility exceptions, refunds, delivery times, or policy exceptions.")
+  aboutTitle          String        @default("")
+  aboutBody           String        @default("")
+  fleetTitle          String        @default("")
+  fleetBody           String        @default("")
+  faqTitle            String        @default("")
+  contactTitle        String        @default("")
+  contactBody         String        @default("")
+  footerText          String        @default("")
+  agentTone           String        @default("")
+  salesScript         String        @default("")
+  agentGreeting       String        @default("")
+  agentHandoffMessage String        @default("")
+  prohibitedClaims    String        @default("")
+  quoteHoldMinutes    Int           @default(60)
+  dataRetentionDays   Int           @default(365)
   sitePublished       Boolean       @default(false)
   publishedSnapshot   Json?
   revision            Int           @default(1)

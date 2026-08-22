@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { isSession, requireSession } from "@/lib/auth/guards";
 import { resolveOwnerDecision } from "@/lib/agent/owner-resolution";
+import { decryptPii } from "@/lib/privacy/pii";
 
 export async function GET(request: NextRequest) {
   const session = await requireSession("STAFF");
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  return NextResponse.json({ escalations });
+  return NextResponse.json({ escalations: escalations.map((item) => ({ ...item, contextSummary: decryptPii(item.contextSummary), suggestedReply: decryptPii(item.suggestedReply), ownerReply: decryptPii(item.ownerReply), conversation: { ...item.conversation, customer: { ...item.conversation.customer, name: decryptPii(item.conversation.customer.name), whatsappId: decryptPii(item.conversation.customer.whatsappId) } } })) });
 }
 
 const replySchema = z.object({
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
   const result = await resolveOwnerDecision({
     escalationId: parsed.data.escalationId,
     ownerReply: parsed.data.ownerReply,
+    actor: session,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });

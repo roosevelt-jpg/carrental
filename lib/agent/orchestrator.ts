@@ -6,9 +6,12 @@ import { AGENT_TOOLS } from "@/lib/agent/tool-definitions";
 import { executeTool } from "@/lib/agent/tools";
 import { escalateToOwner } from "@/lib/agent/tools/escalate-to-owner";
 import { matchEscalationHint } from "@/lib/agent/escalation-hint";
+import { recordLatency } from "@/lib/analytics/latency";
+import { decryptPii, encryptPii } from "@/lib/privacy/pii";
 
 const HISTORY_LIMIT = 20;
 const MAX_TOOL_ROUNDS = 8;
+const MISUNDERSTANDING_TURN_THRESHOLD = 3;
 const HARD_ESCALATION_REASONS = new Set([
   "refund_request",
   "eligibility_exception",
@@ -16,8 +19,28 @@ const HARD_ESCALATION_REASONS = new Set([
   "repeated_misunderstanding",
   "explicit_human_request",
 ]);
-const AUTHORITATIVE_TOOLS = new Set(["get_fleet_catalog", "get_vehicle_pricing", "check_availability", "get_policy", "search_knowledge", "get_business_time"]);
-const FACT_SENSITIVE_REQUEST = /\b(price|pricing|cost|rate|available|availability|today|tomorrow|date|time|open|close|address|location|deposit|delivery|cancel|refund|insurance|licen[cs]e|age|document|policy)\b/i;
+const AUTHORITATIVE_TOOLS = new Set(["get_business_profile", "get_fleet_catalog", "get_vehicle_pricing", "check_availability", "get_policy", "search_knowledge", "get_business_time"]);
+const FACT_SENSITIVE_REQUEST = /\b(price|pricing|cost|rate|quote|available|availability|today|tomorrow|date|time|open|close|hour|address|location|where|phone|email|contact|business|company|deposit|delivery|cancel|refund|insurance|licen[cs]e|age|document|policy|seat|door|transmission|engine|fuel|mileage|kilomet|color|colour|year|make|model|feature|spec|luggage|brand)\b/i;
+
+export function requiresAuthoritativeTool(text: string) {
+  return FACT_SENSITIVE_REQUEST.test(text);
+}
+
+export function requiredAuthoritativeTools(text: string): Set<string> {
+  const groups: Array<[RegExp, string[]]> = [
+    [/\b(price|pricing|cost|rate|quote|deposit)\b/i, ["get_vehicle_pricing", "get_fleet_catalog"]],
+    [/\b(available|availability)\b/i, ["check_availability", "get_fleet_catalog"]],
+    [/\b(today|tomorrow|date|time|open|close|hour)\b/i, ["get_business_time"]],
+    [/\b(address|location|where|phone|email|contact|business|company|currency)\b/i, ["get_business_profile"]],
+    [/\b(cancel|refund|insurance|licen[cs]e|age|document|policy|delivery)\b/i, ["get_policy", "search_knowledge"]],
+    [/\b(seat|door|transmission|engine|fuel|mileage|kilomet|color|colour|year|make|model|feature|spec|luggage|brand)\b/i, ["get_fleet_catalog", "get_vehicle_pricing"]],
+  ];
+  const required = new Set<string>();
+  for (const [pattern, tools] of groups) {
+    if (pattern.test(text)) tools.forEach((tool) => required.add(tool));
+  }
+  return required;
+}
 
 export type AgentReply = {
   texts: string[];
@@ -28,6 +51,7 @@ export type AgentReply = {
 };
 
 export async function runOrchestrator(conversationId: string): Promise<AgentReply> {
+  const contextStartedAt = Date.now();
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: {
@@ -44,10 +68,11 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
   const history = [...conversation.messages].reverse();
   const claudeMessages: Anthropic.MessageParam[] = [];
 
-  if (conversation.summary) {
+  const conversationSummary = decryptPii(conversation.summary);
+  if (conversationSummary) {
     claudeMessages.push({
       role: "user",
-      content: `Earlier conversation summary: ${conversation.summary}`,
+      content: `Earlier conversation summary: ${conversationSummary}`,
     });
     claudeMessages.push({
       role: "assistant",
@@ -58,7 +83,7 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
   for (const message of history) {
     if (!message.content && message.mediaIds.length === 0) continue;
     const text =
-      message.content ??
+      decryptPii(message.content) ??
       (message.mediaIds.length ? "[media message]" : "");
     if (message.direction === "IN") {
       claudeMessages.push({ role: "user", content: text });
@@ -68,9 +93,8 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
   }
 
   const latestInbound = [...history].reverse().find((m) => m.direction === "IN" && m.content);
-  const hint = latestInbound?.content
-    ? matchEscalationHint(latestInbound.content)
-    : null;
+  const latestInboundText = decryptPii(latestInbound?.content);
+  const hint = conversation.misunderstandingCount >= MISUNDERSTANDING_TURN_THRESHOLD - 1 ? "repeated_misunderstanding" : latestInboundText ? matchEscalationHint(latestInboundText) : null;
   if (hint) {
     claudeMessages.push({
       role: "user",
@@ -82,10 +106,14 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     });
   }
 
-  if (hint && HARD_ESCALATION_REASONS.has(hint)) {
+  const hintedRule = hint
+    ? await prisma.escalationRule.findUnique({ where: { reasonCode: hint }, select: { enabled: true } })
+    : null;
+  await recordLatency("context_assembly", contextStartedAt, conversationId);
+  if (hint && hintedRule?.enabled && HARD_ESCALATION_REASONS.has(hint)) {
     const escalation = await escalateToOwner(conversationId, {
       reason_code: hint,
-      conversation_summary: latestInbound?.content ?? `Customer request matched ${hint}`,
+      conversation_summary: latestInboundText ?? `Customer request matched ${hint}`,
       urgency: hint === "explicit_human_request" ? "high" : "normal",
     });
     return {
@@ -136,9 +164,31 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
 
     for (const toolUse of toolUses) {
       usedTools.add(toolUse.name);
+      const toolStartedAt = Date.now();
       const result = await executeTool(toolUse.name, toolUse.input, {
         conversationId,
       });
+      const toolStage = toolUse.name === "generate_payment_link" || toolUse.name === "escalate_to_owner" ? "external_tool" : "db_tool";
+      await recordLatency(toolStage, toolStartedAt, `${conversationId}:${toolUse.name}`);
+
+      const resultRecord = result as { ok?: boolean; error?: string; escalate_recommended?: boolean };
+      if (
+        toolUse.name !== "escalate_to_owner" &&
+        (resultRecord.error || resultRecord.escalate_recommended || resultRecord.ok === false)
+      ) {
+        const fallback = await escalateToOwner(conversationId, {
+          reason_code: "out_of_scope",
+          conversation_summary: `Tool ${toolUse.name} could not safely resolve the customer request: ${resultRecord.error ?? "unknown tool failure"}. Customer message: ${latestInboundText ?? "unknown"}`,
+          urgency: "high",
+        });
+        return {
+          texts: [fallback.customer_message],
+          mediaIds,
+          escalated: true,
+          paymentLinks,
+          toolRounds,
+        };
+      }
 
       if (toolUse.name === "get_vehicle_photos") {
         const photos = result as { media_ids?: string[] };
@@ -153,11 +203,11 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
           amount?: number;
           currency?: string;
         };
-        if (link.ok && link.payment_link_url) {
+        if (link.ok && link.payment_link_url && link.currency && typeof link.amount === "number") {
           paymentLinks.push({
             url: link.payment_link_url,
-            amount: link.amount ?? 0,
-            currency: link.currency ?? "AED",
+            amount: link.amount,
+            currency: link.currency,
           });
         }
       }
@@ -196,13 +246,17 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
     .map((block) => block.text.trim())
     .filter(Boolean);
 
-  const needsVerifiedFact = Boolean(latestInbound?.content && FACT_SENSITIVE_REQUEST.test(latestInbound.content));
+  const needsVerifiedFact = Boolean(latestInboundText && requiresAuthoritativeTool(latestInboundText));
   const usedAuthoritativeSource = [...usedTools].some((name) => AUTHORITATIVE_TOOLS.has(name));
-  const askingForMissingDetails = texts.some((text) => text.includes("?"));
-  if (needsVerifiedFact && !usedAuthoritativeSource && !askingForMissingDetails && !escalated) {
+  const requiredSources = requiredAuthoritativeTools(latestInboundText ?? "");
+  const usedRelevantSource = requiredSources.size === 0 || [...requiredSources].some((name) => usedTools.has(name));
+  const clarifyingOnly = texts.length > 0 && texts.every((text) =>
+    text.split(/(?<=[.!?])\s+/).filter(Boolean).every((sentence) => sentence.trim().endsWith("?")),
+  );
+  if (needsVerifiedFact && (!usedAuthoritativeSource || !usedRelevantSource) && !clarifyingOnly && !escalated) {
     const fallback = await escalateToOwner(conversationId, {
       reason_code: "out_of_scope",
-      conversation_summary: `A factual customer request lacked a verified tool result: ${latestInbound?.content ?? "unknown request"}`,
+      conversation_summary: `A factual customer request lacked a verified tool result: ${latestInboundText ?? "unknown request"}`,
       urgency: "high",
     });
     return { texts: [fallback.customer_message ?? "Let me verify that with the team and get right back to you."], mediaIds, escalated: true, paymentLinks, toolRounds };
@@ -228,15 +282,13 @@ export async function runOrchestrator(conversationId: string): Promise<AgentRepl
   if (history.length >= HISTORY_LIMIT) {
     const digest = history
       .slice(0, 8)
-      .map((m) => `${m.direction}: ${m.content ?? "[media]"}`)
+      .map((m) => `${m.direction}: ${decryptPii(m.content) ?? "[media]"}`)
       .join(" | ")
       .slice(0, 1500);
     await prisma.conversation.update({
       where: { id: conversationId },
       data: {
-        summary: conversation.summary
-          ? `${conversation.summary}\n${digest}`.slice(0, 4000)
-          : digest,
+        summary: encryptPii(conversationSummary ? `${conversationSummary}\n${digest}`.slice(0, 4000) : digest),
       },
     });
   }

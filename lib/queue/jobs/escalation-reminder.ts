@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { sendOwnerOperationalMessage } from "@/lib/integrations/whatsapp-messaging";
+import { decryptPii } from "@/lib/privacy/pii";
 
 export type EscalationReminderJob = {
   escalationId: string;
@@ -15,7 +16,7 @@ export async function processEscalationReminder(data: EscalationReminderJob) {
 
   await sendOwnerOperationalMessage({
     purpose: "OWNER_REMINDER",
-    text: `[${escalation.referenceCode}] Reminder: still waiting on your reply.\n\n${escalation.contextSummary}`,
+    text: `[${escalation.referenceCode}] Reminder: still waiting on your reply.\n\n${decryptPii(escalation.contextSummary)}`,
   });
   await prisma.escalation.update({
     where: { id: escalation.id },

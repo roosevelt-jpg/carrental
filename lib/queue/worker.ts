@@ -45,6 +45,11 @@ const inboundWorker = new Worker(
   },
   { connection, concurrency: 8 },
 );
+const whatsappWebhookWorker = new Worker(
+  QUEUE_NAMES.whatsappWebhook,
+  async (job) => { const { processWhatsAppWebhookEvent } = await import("./jobs/process-whatsapp-webhook"); return processWhatsAppWebhookEvent(String(job.data.eventId)); },
+  { connection, concurrency: 12 },
+);
 
 const reminderWorker = new Worker(
   QUEUE_NAMES.escalationReminder,
@@ -103,6 +108,7 @@ const weeklyDigestWorker = new Worker(
 );
 
 for (const worker of [
+  whatsappWebhookWorker,
   inboundWorker,
   reminderWorker,
   mediaWorker,

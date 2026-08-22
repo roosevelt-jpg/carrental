@@ -18,13 +18,16 @@ type RuleRow = {
 export function PricingManager({
   vehicles,
   rules,
+  currency,
 }: {
   vehicles: VehicleOption[];
   rules: RuleRow[];
+  currency: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     vehicleId: vehicles[0]?.id ?? "",
     ruleType: "SEASONAL",
@@ -38,8 +41,8 @@ export function PricingManager({
     event.preventDefault();
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/admin/pricing-rules", {
-      method: "POST",
+    const res = await fetch(editingId ? `/api/admin/pricing-rules/${editingId}` : "/api/admin/pricing-rules", {
+      method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         vehicleId: form.vehicleId,
@@ -56,6 +59,8 @@ export function PricingManager({
       setError(body.error ?? "Could not create rule");
       return;
     }
+    setEditingId(null);
+    setForm({ vehicleId: vehicles[0]?.id ?? "", ruleType: "SEASONAL", adjustmentPct: "", adjustmentFlat: "", startDate: "", endDate: "" });
     router.refresh();
   }
 
@@ -110,7 +115,7 @@ export function PricingManager({
           />
         </div>
         <div>
-          <label htmlFor="adjustmentFlat">Adjustment flat (AED)</label>
+          <label htmlFor="adjustmentFlat">Adjustment flat{currency ? ` (${currency})` : ""}</label>
           <input
             id="adjustmentFlat"
             value={form.adjustmentFlat}
@@ -138,8 +143,9 @@ export function PricingManager({
         {error ? <p className="text-sm text-danger md:col-span-2">{error}</p> : null}
         <div className="md:col-span-2">
           <button className="btn-gold" disabled={busy} type="submit">
-            Add rule
+            {editingId ? "Save rule" : "Add rule"}
           </button>
+          {editingId ? <button type="button" className="btn-ghost ml-3" onClick={() => setEditingId(null)}>Cancel</button> : null}
         </div>
       </form>
 
@@ -151,12 +157,10 @@ export function PricingManager({
               <p className="text-sm text-muted">
                 {rule.ruleType}
                 {rule.adjustmentPct != null ? ` · ${rule.adjustmentPct}%` : ""}
-                {rule.adjustmentFlat != null ? ` · ${rule.adjustmentFlat} AED` : ""}
+                {rule.adjustmentFlat != null ? ` · ${rule.adjustmentFlat}${currency ? ` ${currency}` : ""}` : ""}
               </p>
             </div>
-            <button type="button" className="text-sm text-danger" onClick={() => removeRule(rule.id)}>
-              Delete
-            </button>
+            <div className="flex gap-3"><button type="button" className="text-sm text-gold" onClick={() => { setEditingId(rule.id); setForm({ vehicleId: rule.vehicleId, ruleType: rule.ruleType, adjustmentPct: rule.adjustmentPct ?? "", adjustmentFlat: rule.adjustmentFlat ?? "", startDate: rule.startDate?.slice(0, 10) ?? "", endDate: rule.endDate?.slice(0, 10) ?? "" }); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Edit</button><button type="button" className="text-sm text-danger" onClick={() => removeRule(rule.id)}>Delete</button></div>
           </li>
         ))}
       </ul>

@@ -50,11 +50,13 @@ describe("production safety contracts", () => {
       expectedAmountMinor: 250000,
       actualAmountMinor: 250000,
       currency: "aed",
+      expectedCurrency: "AED",
       paymentStatus: "paid",
     };
     expect(validatePaidCheckout(valid)).toBeNull();
     expect(validatePaidCheckout({ ...valid, actualSessionId: "cs_other" })).toMatch(/belong/);
     expect(validatePaidCheckout({ ...valid, actualAmountMinor: 1 })).toMatch(/amount/);
+    expect(validatePaidCheckout({ ...valid, currency: "usd" })).toMatch(/currency/);
     expect(validatePaidCheckout({ ...valid, paymentStatus: "unpaid" })).toMatch(/not paid/);
   });
 });

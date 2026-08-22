@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { sendOwnerOperationalMessage } from "@/lib/integrations/whatsapp-messaging";
 import { getEscalationReminderQueue } from "@/lib/queue/queues";
+import { encryptPii } from "@/lib/privacy/pii";
 
 function makeReferenceCode() {
   return `REF-${randomInt(1000, 9999)}`;
@@ -16,16 +17,6 @@ export async function escalateToOwner(
     suggested_reply?: string;
   },
 ) {
-  const rule = await prisma.escalationRule.findUnique({
-    where: { reasonCode: input.reason_code },
-  });
-  if (rule && !rule.enabled) {
-    return {
-      ok: false,
-      error: `Escalation rule ${input.reason_code} is disabled`,
-    };
-  }
-
   let referenceCode = makeReferenceCode();
   for (let i = 0; i < 5; i++) {
     const clash = await prisma.escalation.findUnique({
@@ -41,7 +32,8 @@ export async function escalateToOwner(
       data: {
         conversationId,
         reasonCode: input.reason_code,
-        contextSummary: input.conversation_summary,
+        contextSummary: encryptPii(input.conversation_summary)!,
+        suggestedReply: encryptPii(input.suggested_reply?.trim()),
         referenceCode,
         urgency,
         status: "OPEN",
@@ -133,7 +125,7 @@ export async function resolveEscalationWithOwnerReply(
       where: { id: escalation.id },
       data: {
         status: "RESOLVED",
-        ownerReply,
+        ownerReply: encryptPii(ownerReply),
         resolvedAt: new Date(),
       },
     });

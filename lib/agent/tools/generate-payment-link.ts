@@ -22,6 +22,10 @@ export async function generatePaymentLink(input: {
   }
 
   const expected = Number(quote.totalPrice);
+  const currency = quote.currency?.trim().toLowerCase();
+  if (!currency || !/^[a-z]{3}$/.test(currency)) {
+    return { ok: false, error: "Quote currency is missing or invalid" };
+  }
   if (Math.abs(expected - input.amount) > 0.01) {
     return {
       ok: false,
@@ -42,7 +46,7 @@ export async function generatePaymentLink(input: {
         checkout_session_id: existing.id,
         expires_at: new Date(existing.expires_at * 1000).toISOString(),
         amount: expected,
-        currency: "AED",
+        currency: currency.toUpperCase(),
       };
     }
   }
@@ -71,7 +75,7 @@ export async function generatePaymentLink(input: {
       {
         quantity: 1,
         price_data: {
-          currency: "aed",
+          currency,
           unit_amount: amountCents,
           product_data: {
             name: `${quote.vehicle.make} ${quote.vehicle.model} rental`,
@@ -106,6 +110,6 @@ export async function generatePaymentLink(input: {
     checkout_session_id: session.id,
     expires_at: new Date(session.expires_at * 1000).toISOString(),
     amount: expected,
-    currency: "AED",
+    currency: currency.toUpperCase(),
   };
 }

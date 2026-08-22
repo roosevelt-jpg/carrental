@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { ConversationActions } from "@/components/admin/conversation-actions";
 import { prisma } from "@/lib/db";
+import { LiveRefresh } from "@/components/admin/live-refresh";
+import { decryptPii } from "@/lib/privacy/pii";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,8 +21,8 @@ export default async function ConversationDetailPage({ params }: Params) {
 
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.22em] text-gold">Conversation</p>
-      <h1 className="mt-2 font-serif text-4xl">{conversation.customer.whatsappId}</h1>
+      <div className="flex items-center justify-between"><p className="text-xs uppercase tracking-[0.22em] text-gold">Conversation</p><LiveRefresh intervalMs={3000} /></div>
+      <h1 className="mt-2 font-serif text-4xl">{decryptPii(conversation.customer.whatsappId)}</h1>
       <p className="mt-2 text-sm text-muted">
         {conversation.status} · started {conversation.startedAt.toLocaleString()}
       </p>
@@ -45,7 +47,7 @@ export default async function ConversationDetailPage({ params }: Params) {
               {message.direction} · {message.type} · {message.sentAt.toLocaleString()}
             </p>
             <p className="mt-2 whitespace-pre-wrap text-sm">
-              {message.content ?? (message.mediaIds.length ? "[media]" : "")}
+              {decryptPii(message.content) ?? (message.mediaIds.length ? "[media]" : "")}
             </p>
           </div>
         ))}

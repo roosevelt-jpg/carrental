@@ -16,7 +16,7 @@ type VehicleRow = {
   active: boolean;
 };
 
-export function FleetManager({ vehicles }: { vehicles: VehicleRow[] }) {
+export function FleetManager({ vehicles, currency }: { vehicles: VehicleRow[]; currency: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,9 +102,9 @@ export function FleetManager({ vehicles }: { vehicles: VehicleRow[] }) {
               ["model", "Model"],
               ["category", "Category"],
               ["year", "Year"],
-              ["dailyRate", "Daily rate (AED)"],
+              ["dailyRate", `Daily rate${currency ? ` (${currency})` : ""}`],
               ["weeklyRate", "Weekly rate (optional)"],
-              ["depositAmount", "Deposit (AED)"],
+              ["depositAmount", `Deposit${currency ? ` (${currency})` : ""}`],
             ] as const
           ).map(([key, label]) => (
             <div key={key}>

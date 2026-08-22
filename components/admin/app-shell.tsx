@@ -54,48 +54,39 @@ export function AppShell({ profile, businessName, businessLogoUrl, children }: {
   const title = useMemo(() => pageTitle(pathname), [pathname]);
 
   return (
-    <div data-i18n className="min-h-screen bg-ink text-cream">
+    <div data-i18n className="admin-shell min-h-screen bg-ink text-cream">
       <div className="pointer-events-none fixed inset-0 admin-luxury-grid opacity-30" aria-hidden="true" />
       {mobileOpen ? <button type="button" aria-label="Close menu" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 cursor-default bg-black/60 backdrop-blur-sm lg:hidden" /> : null}
-      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[278px] flex-col border-r border-line bg-panel/95 shadow-2xl backdrop-blur-xl transition-transform lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex h-24 items-center gap-3 border-b border-line px-6">
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[264px] flex-col border-r border-line bg-panel/95 shadow-2xl backdrop-blur-xl transition-transform lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="flex h-20 items-center gap-3 border-b border-line px-5">
           <BrandMark name={businessName} logoUrl={businessLogoUrl} />
           <div className="min-w-0">
             <p className="truncate font-serif text-xl text-gold-2">{businessName}</p>
             <p className="mt-0.5 text-[10px] uppercase tracking-[0.24em] text-muted">Executive console</p>
           </div>
         </div>
-        <nav className="admin-scrollbar flex-1 overflow-y-auto px-4 py-5" aria-label="Administration">
+        <nav className="admin-scrollbar flex-1 overflow-y-auto px-3 py-5" aria-label="Administration">
           {NAV_GROUPS.map((group) => (
-            <div key={group.label} className="mb-6">
+            <div key={group.label} className="mb-5">
               <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted/80">{group.label}</p>
               <div className="space-y-1">
                 {group.items.map((item) => {
                   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                    return <Link onClick={() => setMobileOpen(false)} key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${active ? "bg-gold text-ink shadow-[0_10px_30px_rgba(198,163,106,.18)]" : "text-cream/70 hover:bg-panel-2 hover:text-cream"}`}><NavIcon name={item.icon} /><span>{item.label}</span></Link>;
+                    return <Link onClick={() => setMobileOpen(false)} key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${active ? "bg-gold/12 text-gold-2 ring-1 ring-inset ring-gold/20" : "text-cream/70 hover:bg-panel-2 hover:text-cream"}`}>{active ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-gold" /> : null}<NavIcon name={item.icon} /><span>{item.label}</span></Link>;
                 })}
               </div>
             </div>
           ))}
         </nav>
-        <div className="border-t border-line p-4">
-          <Link onClick={() => setMobileOpen(false)} href="/admin/settings/profile" className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-panel-2">
-            <Avatar profile={profile} />
-            <div className="min-w-0" data-no-translate>
-              <p className="truncate text-sm font-medium">{profile.name || "Account profile"}</p>
-              <p className="truncate text-xs text-muted">{profile.email}</p>
-            </div>
-          </Link>
-        </div>
       </aside>
 
-      <div className="relative lg:pl-[278px]">
-        <header className="sticky top-0 z-[60] flex h-20 items-center justify-between border-b border-line bg-ink/82 px-4 backdrop-blur-xl sm:px-6 lg:px-10">
+      <div className="relative lg:pl-[264px]">
+        <header className="sticky top-0 z-[60] flex h-[72px] items-center justify-between border-b border-line bg-ink/82 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
             <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 place-items-center rounded-full border border-line lg:hidden" aria-label="Open menu"><MenuIcon /></button>
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-[0.24em] text-gold">Administration</p>
-              <h1 className="truncate font-serif text-2xl leading-tight sm:text-3xl">{title}</h1>
+              <h1 className="truncate font-serif text-xl leading-tight sm:text-2xl">{title}</h1>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
@@ -122,7 +113,7 @@ export function AppShell({ profile, businessName, businessLogoUrl, children }: {
             </div>
           </div>
         </header>
-        <main className="relative px-4 py-7 sm:px-6 lg:px-10 lg:py-10">{children}</main>
+        <main className="relative mx-auto max-w-[1600px] px-4 py-7 sm:px-6 lg:px-8 lg:py-8">{children}</main>
       </div>
     </div>
   );

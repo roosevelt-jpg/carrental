@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db";
-import { getDataRetentionDays } from "@/lib/env";
+import { getDataRetentionDays } from "@/lib/settings/business-controls";
+import { encryptPii, piiLookupHash } from "@/lib/privacy/pii";
 
 export async function processRetentionSweep() {
-  const retentionDays = getDataRetentionDays();
+  const retentionDays = await getDataRetentionDays();
   const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
   const customers = await prisma.customer.findMany({
     where: {
@@ -29,7 +30,7 @@ export async function processRetentionSweep() {
       });
       await tx.escalation.updateMany({
         where: { conversationId: { in: conversationIds } },
-        data: { contextSummary: "Removed by retention policy", ownerReply: null },
+        data: { contextSummary: encryptPii("Removed by retention policy")!, ownerReply: null, suggestedReply: null },
       });
       await tx.conversation.updateMany({
         where: { id: { in: conversationIds } },
@@ -38,7 +39,8 @@ export async function processRetentionSweep() {
       await tx.customer.update({
         where: { id: customer.id },
         data: {
-          whatsappId: `deleted:${customer.id}`,
+          whatsappId: encryptPii(`deleted:${customer.id}`)!,
+          whatsappIdHash: piiLookupHash(`deleted:${customer.id}`),
           name: null,
           verifiedDocs: false,
           anonymizedAt: new Date(),

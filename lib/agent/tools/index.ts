@@ -8,6 +8,7 @@ import { getPolicy } from "@/lib/agent/tools/get-policy";
 import { escalateToOwner } from "@/lib/agent/tools/escalate-to-owner";
 import { searchVerifiedKnowledge } from "@/lib/knowledge/search";
 import { getBusinessTime } from "@/lib/agent/tools/get-business-time";
+import { getBusinessProfile } from "@/lib/agent/tools/get-business-profile";
 
 export type ToolContext = {
   conversationId: string;
@@ -22,6 +23,8 @@ export async function executeTool(
 
   try {
     switch (name) {
+      case "get_business_profile":
+        return await getBusinessProfile();
       case "get_fleet_catalog":
         return await getFleetCatalog({
           start_date: String(input.start_date),

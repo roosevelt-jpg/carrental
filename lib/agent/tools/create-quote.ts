@@ -2,8 +2,9 @@ import { prisma } from "@/lib/db";
 import { parseDateOnly } from "@/lib/agent/dates";
 import { computeQuotePricing } from "@/lib/agent/pricing";
 import { checkAvailability } from "@/lib/agent/tools/check-availability";
-import { getQuoteHoldMinutes } from "@/lib/env";
+import { getQuoteHoldMinutes } from "@/lib/settings/business-controls";
 import { getExpireQuotesQueue } from "@/lib/queue/queues";
+import { getCmsSettings } from "@/lib/cms/content";
 
 export async function createQuote(
   conversationId: string,
@@ -30,6 +31,10 @@ export async function createQuote(
   if (!vehicle || !vehicle.active) {
     return { ok: false, error: "Vehicle not found or inactive" };
   }
+  const cms = await getCmsSettings();
+  if (!cms.currency.trim()) {
+    return { ok: false, error: "Business currency is not configured" };
+  }
 
   const pricing = computeQuotePricing(
     vehicle,
@@ -40,7 +45,7 @@ export async function createQuote(
 
   const startDate = parseDateOnly(input.start_date);
   const endDate = parseDateOnly(input.end_date);
-  const holdMinutes = getQuoteHoldMinutes();
+  const holdMinutes = await getQuoteHoldMinutes();
   const expiresAt = new Date(Date.now() + holdMinutes * 60 * 1000);
 
   // The transaction and database exclusion constraint make the availability
@@ -67,6 +72,7 @@ export async function createQuote(
           startDate,
           endDate,
           totalPrice: pricing.totalPrice,
+          currency: cms.currency.toUpperCase(),
           depositDue: pricing.depositDue,
           status: "PENDING",
           expiresAt,
@@ -90,6 +96,7 @@ export async function createQuote(
     start_date: input.start_date,
     end_date: input.end_date,
     total_price: pricing.totalPrice,
+    currency: cms.currency.toUpperCase(),
     deposit_due: pricing.depositDue,
     expires_at: quote.expiresAt.toISOString(),
     model_supplied_total: input.total_price,

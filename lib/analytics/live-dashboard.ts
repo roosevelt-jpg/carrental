@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/db";
 import { getCmsSettings } from "@/lib/cms/content";
+import { percentile } from "@/lib/analytics/latency";
 
 export type AnalyticsData = Awaited<ReturnType<typeof getLiveAnalytics>>;
 
 export async function getLiveAnalytics(days = 30) {
   const safeDays = [7, 30, 90].includes(days) ? days : 30;
   const now = new Date(); const since = startOfDay(new Date(now.getTime() - (safeDays - 1) * 86_400_000)); const previousSince = new Date(since.getTime() - safeDays * 86_400_000);
-  const [cms, conversations, quotes, bookings, escalations, processing, outbound, knowledgeQueries, previous, openEscalations] = await Promise.all([
+  const [cms, conversations, quotes, bookings, escalations, processing, outbound, knowledgeQueries, previous, openEscalations, pipeline] = await Promise.all([
     getCmsSettings(),
     prisma.conversation.findMany({ where: { startedAt: { gte: since } }, select: { id: true, startedAt: true, status: true } }),
     prisma.quote.findMany({ where: { createdAt: { gte: since } }, select: { id: true, conversationId: true, createdAt: true, status: true, totalPrice: true, vehicle: { select: { make: true, model: true } } } }),
@@ -17,6 +18,7 @@ export async function getLiveAnalytics(days = 30) {
     prisma.knowledgeQueryLog.findMany({ where: { createdAt: { gte: since } }, select: { found: true, createdAt: true } }),
     getPreviousPeriod(previousSince, since),
     prisma.escalation.count({ where: { status: "OPEN" } }),
+    prisma.pipelineLatencyMetric.findMany({ where: { createdAt: { gte: since } }, select: { stage: true, latencyMs: true } }),
   ]);
 
   const revenue = bookings.reduce((sum, item) => sum + Number(item.quote.totalPrice), 0);
@@ -48,10 +50,21 @@ export async function getLiveAnalytics(days = 30) {
     ],
     funnel: { conversations: conversations.length, quotedConversations: new Set(quotes.map((item) => item.conversationId)).size, quotes: quotes.length, bookings: bookings.length },
     operations: { openEscalations, resolutionRate: escalations.length ? escalations.filter((item) => item.resolvedAt).length / escalations.length * 100 : 100, aiSuccessRate: processing.length ? processing.filter((item) => item.succeeded).length / processing.length * 100 : 100, knowledgeMisses: knowledgeQueries.filter((item) => !item.found).length },
+    latencySlo: latencyReport(pipeline, processing.map((item) => item.latencyMs)),
     series,
     topVehicles: [...vehicleMap.entries()].map(([name, value]) => ({ name, ...value })).sort((a, b) => b.revenue - a.revenue || b.quotes - a.quotes).slice(0, 6),
     escalationReasons: [...reasonMap.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count).slice(0, 6),
   };
+}
+
+function latencyReport(rows: Array<{ stage: string; latencyMs: number }>, endToEnd: number[]) {
+  const stages = [
+    { key: "webhook_to_queue", label: "Webhook → queue", targetMs: 200 },
+    { key: "context_assembly", label: "Context assembly", targetMs: 500 },
+    { key: "db_tool", label: "Database tool", targetMs: 100 },
+    { key: "end_to_end", label: "Complete processing", targetMs: 5000 },
+  ];
+  return stages.map((stage) => { const values = stage.key === "end_to_end" ? endToEnd : rows.filter((row) => row.stage === stage.key).map((row) => row.latencyMs); const p50 = percentile(values, .5); const p95 = percentile(values, .95); return { ...stage, samples: values.length, p50, p95, passing: p95 != null && p95 <= stage.targetMs }; });
 }
 
 async function getPreviousPeriod(from: Date, to: Date) {

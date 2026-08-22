@@ -38,6 +38,27 @@ export async function PATCH(request: NextRequest) {
     create: { id: "primary" },
     update: {},
   });
+  if (parsed.data.sitePublished === true) {
+    const candidate = { ...before, ...parsed.data };
+    const required = [
+      "businessName", "businessDescription", "city", "country", "timezone", "currency",
+      "seoTitle", "seoDescription", "heroTitle", "heroSubtitle", "aboutTitle", "aboutBody",
+      "fleetTitle", "fleetBody", "contactTitle", "contactBody", "footerText", "agentTone",
+      "salesScript", "agentGreeting", "agentHandoffMessage", "prohibitedClaims",
+    ] as const;
+    const missing = required.filter((key) => !String(candidate[key] ?? "").trim());
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Complete the real business content before publishing: ${missing.join(", ")}` },
+        { status: 400 },
+      );
+    }
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: candidate.timezone }).format();
+    } catch {
+      return NextResponse.json({ error: "Enter a valid IANA business timezone before publishing" }, { status: 400 });
+    }
+  }
   const settings = await prisma.$transaction(async (tx) => {
     let updated = await tx.cmsSettings.update({
       where: { id: "primary" },

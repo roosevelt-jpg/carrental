@@ -2,7 +2,6 @@ import { describe, expect, it, afterEach } from "vitest";
 import { getStorageBackend } from "@/lib/storage/object-storage";
 
 const keys = [
-  "BLOB_READ_WRITE_TOKEN",
   "S3_ENDPOINT",
   "S3_BUCKET",
   "S3_ACCESS_KEY",
@@ -27,14 +26,7 @@ function clearAll() {
 }
 
 describe("getStorageBackend", () => {
-  it("prefers Vercel Blob when token is present", () => {
-    capture();
-    clearAll();
-    process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test";
-    expect(getStorageBackend()).toBe("vercel-blob");
-  });
-
-  it("falls back to s3 then local", () => {
+  it("uses S3 when configured and local storage otherwise", () => {
     capture();
     clearAll();
     expect(getStorageBackend()).toBe("local");

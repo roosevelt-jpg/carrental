@@ -42,7 +42,7 @@ export function PhotoUploader({
     <section className="rounded-xl border border-line bg-panel p-6">
       <h2 className="font-serif text-2xl">Photos</h2>
       <p className="mt-2 text-sm text-muted">
-        Stored on Vercel Blob when connected (else S3 / local /uploads). A worker
+        Stored in S3-compatible object storage (or local /uploads during development). A worker
         job downloads the public URL and uploads to WhatsApp media once
         credentials exist.
       </p>

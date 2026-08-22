@@ -1,8 +1,10 @@
 import { Queue } from "bullmq";
 import { getRedisConnection } from "@/lib/queue/connection";
+import { getCmsSettings } from "@/lib/cms/content";
 
 export const QUEUE_NAMES = {
   inboundMessage: "process-inbound-message",
+  whatsappWebhook: "whatsapp-webhook-event",
   escalationReminder: "escalation-reminder",
   mediaReupload: "media-reupload",
   markDropped: "mark-dropped-conversations",
@@ -19,6 +21,7 @@ const defaultJobOptions = {
 };
 
 let inboundQueue: Queue | null = null;
+let whatsappWebhookQueue: Queue | null = null;
 let escalationQueue: Queue | null = null;
 let mediaQueue: Queue | null = null;
 let markDroppedQueue: Queue | null = null;
@@ -58,6 +61,11 @@ export function getMarkDroppedQueue() {
   return markDroppedQueue;
 }
 
+export function getWhatsAppWebhookQueue() {
+  whatsappWebhookQueue ??= new Queue(QUEUE_NAMES.whatsappWebhook, { connection: getRedisConnection(), defaultJobOptions });
+  return whatsappWebhookQueue;
+}
+
 export function getExpireQuotesQueue() {
   expireQuotesQueue ??= new Queue(QUEUE_NAMES.expireQuotes, {
     connection: getRedisConnection(),
@@ -83,6 +91,8 @@ export function getWeeklyDigestQueue() {
 }
 
 export async function ensureRecurringJobs() {
+  const cms = await getCmsSettings();
+  const timezone = validTimezone(cms.timezone);
   await getMarkDroppedQueue().upsertJobScheduler(
     "mark-dropped-hourly",
     { every: 60 * 60 * 1000 },
@@ -101,14 +111,30 @@ export async function ensureRecurringJobs() {
     { pattern: "0 3 * * *" },
     { name: "sweep", data: {} },
   );
-  await getWeeklyDigestQueue().upsertJobScheduler(
-    "weekly-digest-monday",
-    { pattern: "0 9 * * 1", tz: "Asia/Dubai" },
-    { name: "send", data: { days: 7 } },
-  );
-  await getMediaReuploadQueue().upsertJobScheduler(
-    "refresh-whatsapp-media-daily",
-    { pattern: "30 2 * * *", tz: "Asia/Dubai" },
-    { name: "refresh", data: {} },
-  );
+  if (timezone) {
+    await getWeeklyDigestQueue().upsertJobScheduler(
+      "weekly-digest-monday",
+      { pattern: "0 9 * * 1", tz: timezone },
+      { name: "send", data: { days: 7 } },
+    );
+    await getMediaReuploadQueue().upsertJobScheduler(
+      "refresh-whatsapp-media-daily",
+      { pattern: "30 2 * * *", tz: timezone },
+      { name: "refresh", data: {} },
+    );
+  } else {
+    await getWeeklyDigestQueue().removeJobScheduler("weekly-digest-monday");
+    await getMediaReuploadQueue().removeJobScheduler("refresh-whatsapp-media-daily");
+  }
+}
+
+function validTimezone(value: string) {
+  const timezone = value.trim();
+  if (!timezone) return null;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
+    return timezone;
+  } catch {
+    return null;
+  }
 }

@@ -45,6 +45,8 @@ export const cmsSettingsPatchSchema = z
     agentGreeting: requiredText(1000).optional(),
     agentHandoffMessage: requiredText(1000).optional(),
     prohibitedClaims: requiredText(4000).optional(),
+    quoteHoldMinutes: z.coerce.number().int().min(30).max(1440).optional(),
+    dataRetentionDays: z.coerce.number().int().min(30).max(3650).optional(),
     sitePublished: z.boolean().optional(),
   })
   .strict()

@@ -22,9 +22,9 @@ export function UsersManager({
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     email: "",
-    password: "",
     role: "STAFF",
   });
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
 
   async function invite(event: React.FormEvent) {
     event.preventDefault();
@@ -41,8 +41,8 @@ export function UsersManager({
       setError(body.error ?? "Could not create user");
       return;
     }
-    setForm({ email: "", password: "", role: "STAFF" });
-    router.refresh();
+    setForm({ email: "", role: "STAFF" });
+    setInviteUrl(body.invitation.inviteUrl);
   }
 
   async function setRole(id: string, role: string) {
@@ -83,17 +83,6 @@ export function UsersManager({
           />
         </div>
         <div>
-          <label htmlFor="password">Temporary password</label>
-          <input
-            id="password"
-            type="password"
-            required
-            minLength={10}
-            value={form.password}
-            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-          />
-        </div>
-        <div>
           <label htmlFor="role">Role</label>
           <select
             id="role"
@@ -111,6 +100,7 @@ export function UsersManager({
           </button>
         </div>
         {error ? <p className="text-sm text-danger md:col-span-2">{error}</p> : null}
+        {inviteUrl ? <div className="md:col-span-2 rounded-xl border border-gold/20 bg-gold/5 p-4"><p className="text-xs text-gold">Secure invitation created. Share this one-time link with the invited person:</p><div className="mt-2 flex gap-2"><input readOnly value={inviteUrl} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="btn-ghost" onClick={() => navigator.clipboard.writeText(inviteUrl)}>Copy</button></div><p className="mt-2 text-xs text-muted">Expires in 48 hours.</p></div> : null}
       </form>
 
       <ul className="space-y-3">

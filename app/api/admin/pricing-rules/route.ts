@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { isSession, requireSession } from "@/lib/auth/guards";
 
-const createSchema = z.object({
+export const pricingRuleSchema = z.object({
   vehicleId: z.string().min(1),
   ruleType: z.enum(["SEASONAL", "DURATION", "WEEKDAY"]),
   startDate: z.string().datetime().optional().nullable(),
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   const session = await requireSession("ADMIN");
   if (!isSession(session)) return session;
 
-  const parsed = createSchema.safeParse(await request.json());
+  const parsed = pricingRuleSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid pricing rule" }, { status: 400 });
   }

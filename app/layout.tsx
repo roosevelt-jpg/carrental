@@ -19,8 +19,8 @@ const cormorant = Cormorant_Garamond({
 
 export const metadata: Metadata = {
   metadataBase: new URL(getAppBaseUrl()),
-  title: "Atelier Fleet — Admin",
-  description: "WhatsApp sales agent for a luxury car rental business",
+  title: "Business administration",
+  description: "WhatsApp sales agent administration",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

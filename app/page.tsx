@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const { settings } = await getPublicCmsContent();
   const images = settings.heroImageUrl
     ? [{ url: settings.heroImageUrl }]
-    : [{ url: "/images/carrental-hero.png" }];
+    : [{ url: "/images/atelier-supercar-hero.png" }];
 
   return {
     title: settings.seoTitle,
@@ -54,7 +54,7 @@ export default async function HomePage() {
         className="public-site public-hero relative grid min-h-screen place-items-center overflow-hidden bg-[var(--site-bg)] px-6 text-cream"
       >
         <Image
-          src="/images/carrental-hero.png"
+          src="/images/atelier-supercar-hero.png"
           alt=""
           fill
           priority
@@ -80,7 +80,7 @@ export default async function HomePage() {
     settings.whatsappDisplay || settings.phone,
     settings.businessName,
   );
-  const heroImage = settings.heroImageUrl || "/images/carrental-hero.png";
+  const heroImage = settings.heroImageUrl || "/images/atelier-supercar-hero.png";
   const [heroLead, heroEmphasis] = splitHeadline(settings.heroTitle);
 
   return (
@@ -322,6 +322,7 @@ function splitHeadline(value: string): [string, string] {
 }
 
 function formatMoney(value: number, currency: string) {
+  if (!/^[A-Z]{3}$/.test(currency)) return String(value);
   return new Intl.NumberFormat("en-AE", {
     style: "currency",
     currency,

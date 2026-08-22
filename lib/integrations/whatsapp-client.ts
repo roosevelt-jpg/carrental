@@ -1,5 +1,21 @@
 import { getCredential } from "@/lib/settings/settings-service";
 import { WHATSAPP_GRAPH_VERSION } from "@/lib/integrations/constants";
+import { prisma } from "@/lib/db";
+
+async function recordMetaHealth(response: Response) {
+  const retryAfterSecs = Number(response.headers.get("retry-after")) || null;
+  const usageHeaders = [response.headers.get("x-app-usage"), response.headers.get("x-business-use-case-usage")].filter(Boolean);
+  const percentages = usageHeaders.flatMap((header) => [...String(header).matchAll(/"(?:call_count|total_cputime|total_time)"\s*:\s*(\d+)/g)].map((match) => Number(match[1])));
+  await prisma.providerHealth.upsert({ where: { id: "meta" }, create: { id: "meta", lastStatusCode: response.status, lastSuccessAt: response.ok ? new Date() : null, rateLimitedAt: response.status === 429 ? new Date() : null, retryAfterSecs, usagePercent: percentages.length ? Math.max(...percentages) : null }, update: { lastStatusCode: response.status, ...(response.ok ? { lastSuccessAt: new Date() } : {}), ...(response.status === 429 ? { rateLimitedAt: new Date(), retryAfterSecs } : {}), ...(percentages.length ? { usagePercent: Math.max(...percentages) } : {}) } });
+}
+
+export class MetaApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code?: number, public readonly subcode?: number) { super(message); this.name = "MetaApiError"; }
+}
+
+export function isExpiredMediaError(error: unknown) {
+  return error instanceof MetaApiError && (error.code === 100 || error.code === 131052 || error.code === 131053 || error.subcode === 33);
+}
 
 async function requiredWhatsAppCreds() {
   const [accessToken, phoneNumberId] = await Promise.all([
@@ -20,6 +36,7 @@ export async function graphGet(path: string) {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  await recordMetaHealth(res);
   const body = await res.json();
   if (!res.ok) {
     throw new Error(
@@ -42,12 +59,11 @@ export async function graphPost(path: string, payload: unknown) {
     },
     body: JSON.stringify(payload),
   });
+  await recordMetaHealth(res);
   const body = await res.json();
   if (!res.ok) {
-    throw new Error(
-      (body as { error?: { message?: string } }).error?.message ??
-        `WhatsApp Graph POST ${res.status}`,
-    );
+    const meta = (body as { error?: { message?: string; code?: number; error_subcode?: number } }).error;
+    throw new MetaApiError(meta?.message ?? `WhatsApp Graph POST ${res.status}`, res.status, meta?.code, meta?.error_subcode);
   }
   return body;
 }

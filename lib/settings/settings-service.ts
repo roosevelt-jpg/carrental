@@ -120,19 +120,22 @@ export async function listMaskedCredentials(provider: Provider) {
 export async function testConnection(
   provider: Provider,
 ): Promise<{ ok: boolean; detail: string }> {
+  let result: { ok: boolean; detail: string };
   try {
     if (provider === "whatsapp") {
-      return await testWhatsApp();
+      result = await testWhatsApp();
+    } else if (provider === "anthropic") {
+      result = await testAnthropic();
+    } else {
+      result = await testStripe();
     }
-    if (provider === "anthropic") {
-      return await testAnthropic();
-    }
-    return await testStripe();
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : "Unknown connection error";
-    return { ok: false, detail };
+    result = { ok: false, detail };
   }
+  await prisma.integrationTestResult.upsert({ where: { provider }, create: { provider, ...result }, update: { ...result, testedAt: new Date() } });
+  return result;
 }
 
 async function testWhatsApp(): Promise<{ ok: boolean; detail: string }> {

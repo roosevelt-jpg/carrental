@@ -1,9 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCredential } from "@/lib/settings/settings-service";
-import { getInboundMessageQueue } from "@/lib/queue/queues";
+import { getWhatsAppWebhookQueue } from "@/lib/queue/queues";
 import { captureException } from "@/lib/observability/sentry";
+import { Prisma } from "@prisma/client";
+import { encryptPii } from "@/lib/privacy/pii";
 
 export const runtime = "nodejs";
 
@@ -37,72 +39,37 @@ export async function POST(request: NextRequest) {
   }
 
   const { messages, statuses, templateUpdates } = extractWebhookData(payload);
-  const queue = getInboundMessageQueue();
-
+  const queue = getWhatsAppWebhookQueue();
+  const events = [
+    ...messages.map((message) => ({ eventId: message.id, kind: "INBOUND_MESSAGE" as const, payload: { metaMessageId: message.id, from: message.from, timestamp: message.timestamp, type: message.type, text: message.text?.body ?? (message.reaction?.emoji ? `[Customer reacted ${message.reaction.emoji}]` : undefined), contextMessageId: message.context?.id, payload: message } })),
+    ...statuses.map((status) => ({ eventId: `status:${status.id}:${status.status}`, kind: "DELIVERY_STATUS" as const, payload: status })),
+    ...templateUpdates.map((update, index) => ({ eventId: `template:${createHash("sha256").update(rawBody).update(String(index)).digest("hex")}`, kind: "TEMPLATE_STATUS" as const, payload: update })),
+  ];
   try {
-    for (const message of messages) {
-    await queue.add(
-      "inbound",
-      {
-        metaMessageId: message.id,
-        from: message.from,
-        timestamp: message.timestamp,
-        type: message.type,
-        text:
-          message.text?.body ??
-          (message.reaction?.emoji ? `[Customer reacted ${message.reaction.emoji}]` : undefined),
-        contextMessageId: message.context?.id,
-        payload: message,
-      },
-      { jobId: message.id },
-    );
-    }
-
-    for (const status of statuses) {
-    const deliveryStatus = mapDeliveryStatus(status.status);
-    if (!deliveryStatus) continue;
-    const message = await prisma.message.findUnique({
-      where: { metaMessageId: status.id },
-      select: { id: true, deliveryStatus: true },
-    });
-    if (message && shouldAdvanceDeliveryStatus(message.deliveryStatus, deliveryStatus)) {
-      await prisma.message.update({
-        where: { id: message.id },
-        data: {
-          deliveryStatus,
-          statusUpdatedAt: new Date(),
-          failureCode: status.errors?.[0]?.code?.toString() ?? null,
-        },
-      });
-    }
-
-    for (const update of templateUpdates) {
-      const status =
-        update.event === "APPROVED"
-          ? "APPROVED"
-          : update.event === "REJECTED" || update.event === "DISABLED"
-            ? "REJECTED"
-            : "SUBMITTED";
-      await prisma.messageTemplate.updateMany({
-        where: {
-          OR: [
-            ...(update.message_template_id ? [{ metaTemplateId: update.message_template_id }] : []),
-            ...(update.message_template_name ? [{ metaTemplateName: update.message_template_name }] : []),
-          ],
-        },
-        data: {
-          status,
-          rejectionReason: status === "REJECTED" ? update.reason ?? update.event : null,
-        },
-      });
-    }
+    for (const item of events) {
+      let event;
+      let recovery = false;
+      try { event = await prisma.whatsAppWebhookEvent.create({ data: { eventId: item.eventId, kind: item.kind, payload: encryptPii(JSON.stringify(item.payload)) as Prisma.InputJsonValue } }); }
+      catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+        event = await prisma.whatsAppWebhookEvent.findUnique({ where: { eventId: item.eventId } });
+        if (!event || event.status === "COMPLETE") continue;
+        if (event.queuedAt && !event.error) continue;
+        recovery = true;
+      }
+      await queue.add("process", { eventId: event.eventId }, { jobId: recovery ? `${event.id}:recovery:${Date.now()}` : event.eventId });
+      const queuedAt = new Date();
+      await prisma.$transaction([
+        prisma.whatsAppWebhookEvent.update({ where: { id: event.id }, data: { queuedAt, error: null } }),
+        prisma.pipelineLatencyMetric.create({ data: { stage: "webhook_to_queue", latencyMs: queuedAt.getTime() - event.receivedAt.getTime(), reference: event.eventId } }),
+      ]);
     }
   } catch (error) {
     captureException(error, { webhook: "whatsapp" });
     return NextResponse.json({ error: "Webhook enqueue failed" }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, accepted: events.length });
 }
 
 export function verifyMetaSignature(

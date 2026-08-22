@@ -2,6 +2,11 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
+    name: "get_business_profile",
+    description: "Retrieve owner-authored business identity, location, contact details, timezone, and currency.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "get_fleet_catalog",
     description: "List available vehicles matching category/date/budget filters.",
     input_schema: {

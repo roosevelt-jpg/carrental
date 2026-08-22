@@ -13,6 +13,7 @@ import { resolveOwnerDecision } from "@/lib/agent/owner-resolution";
 import type { AgentReply } from "@/lib/agent/orchestrator";
 import { captureException } from "@/lib/observability/sentry";
 import { selectContextualReaction } from "@/lib/agent/contextual-reaction";
+import { decryptPii, encryptPii, piiLookupHash } from "@/lib/privacy/pii";
 
 export type InboundMessageJob = {
   metaMessageId: string;
@@ -68,10 +69,12 @@ export async function processInboundMessage(data: InboundMessageJob) {
   const inboundAt = /^\d+$/.test(data.timestamp)
     ? new Date(Number(data.timestamp) * 1000)
     : new Date();
+  const whatsappIdHash = piiLookupHash(data.from);
   const customer = await prisma.customer.upsert({
-    where: { whatsappId: data.from },
+    where: { whatsappIdHash },
     create: {
-      whatsappId: data.from,
+      whatsappId: encryptPii(data.from)!,
+      whatsappIdHash,
       optInAt: inboundAt,
       lastInboundAt: inboundAt,
     },
@@ -101,7 +104,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
         conversationId: conversation.id,
         direction: "IN",
         type: data.type,
-        content: data.text ?? null,
+        content: encryptPii(data.text),
         metaMessageId: data.metaMessageId,
       },
     });
@@ -126,7 +129,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
     );
   }
 
-  let reply = existing?.agentReply as AgentReply | null | undefined;
+  let reply = existing?.agentReply ? JSON.parse(decryptPii(String(existing.agentReply)) ?? "null") as AgentReply | null : null;
   let orchestrationSucceeded = true;
   if (!reply) {
     try {
@@ -162,7 +165,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
     }
     await prisma.message.update({
       where: { metaMessageId: data.metaMessageId },
-      data: { agentReply: JSON.parse(JSON.stringify(reply)) },
+      data: { agentReply: encryptPii(JSON.stringify(reply))! },
     });
   }
 
@@ -173,6 +176,12 @@ export async function processInboundMessage(data: InboundMessageJob) {
     typingMessageId: data.metaMessageId,
     sourceMessageId: data.metaMessageId,
   });
+
+  if (!existing && data.text) {
+    const priorInbound = await prisma.message.findMany({ where: { conversationId: conversation.id, direction: "IN", metaMessageId: { not: data.metaMessageId } }, orderBy: { sentAt: "desc" }, take: 3, select: { content: true } });
+    const nextCount = nextMisunderstandingCount(data.text, priorInbound.map((row) => decryptPii(row.content) ?? ""), conversation.misunderstandingCount);
+    conversation = await prisma.conversation.update({ where: { id: conversation.id }, data: { misunderstandingCount: nextCount } });
+  }
 
   await prisma.processingMetric.upsert({
     where: { inboundMessageId: data.metaMessageId },
@@ -195,4 +204,15 @@ export async function processInboundMessage(data: InboundMessageJob) {
     paymentLinks: delivered.paymentLinks,
     escalated: reply.escalated,
   };
+}
+
+function normalizeIntent(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\b(please|thanks|thank you|hi|hello)\b/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function nextMisunderstandingCount(currentText: string, priorInbound: string[], currentCount: number) {
+  const current = normalizeIntent(currentText);
+  const explicitlyMisunderstood = /\b(you (still )?do not understand|you don't understand|not what i (asked|meant)|already (said|asked))\b/i.test(currentText);
+  const repeated = Boolean(current) && priorInbound.some((value) => normalizeIntent(value) === current);
+  return explicitlyMisunderstood || repeated ? currentCount + 1 : 0;
 }

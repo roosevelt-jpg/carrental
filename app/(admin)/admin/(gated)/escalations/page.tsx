@@ -1,5 +1,6 @@
 import { EscalationsManager } from "@/components/admin/escalations-manager";
 import { prisma } from "@/lib/db";
+import { decryptPii } from "@/lib/privacy/pii";
 
 export default async function EscalationsPage() {
   const escalations = await prisma.escalation.findMany({
@@ -18,11 +19,12 @@ export default async function EscalationsPage() {
           id: e.id,
           referenceCode: e.referenceCode,
           reasonCode: e.reasonCode,
-          contextSummary: e.contextSummary,
+          contextSummary: decryptPii(e.contextSummary) ?? "",
+          suggestedReply: decryptPii(e.suggestedReply),
           status: e.status,
           urgency: e.urgency,
           createdAt: e.createdAt.toISOString(),
-          customerWhatsappId: e.conversation.customer.whatsappId,
+          customerWhatsappId: decryptPii(e.conversation.customer.whatsappId) ?? "",
         }))}
       />
     </div>

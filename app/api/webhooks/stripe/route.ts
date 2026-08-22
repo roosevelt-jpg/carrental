@@ -12,6 +12,7 @@ import { Prisma } from "@prisma/client";
 import { escalateToOwner } from "@/lib/agent/tools/escalate-to-owner";
 import { captureException } from "@/lib/observability/sentry";
 import { getCmsSettings, prepareNotification } from "@/lib/cms/content";
+import { decryptPii, encryptPii } from "@/lib/privacy/pii";
 
 export const runtime = "nodejs";
 
@@ -139,7 +140,7 @@ async function notifyBookingConfirmed(
   const customerMsg = bookingNotification.text;
   if (!quote.booking.customerNotifiedAt) {
     const sent = await sendCustomerText({
-      to: quote.conversation.customer.whatsappId,
+      to: decryptPii(quote.conversation.customer.whatsappId)!,
       text: customerMsg,
       templatePurpose: "BOOKING_CONFIRMATION",
       templateParameters: bookingNotification.parameters,
@@ -151,7 +152,7 @@ async function notifyBookingConfirmed(
           conversationId: quote.conversationId,
           direction: "OUT",
           type: "booking_confirmation",
-          content: customerMsg,
+          content: encryptPii(customerMsg),
           metaMessageId: metaId,
           deliveryStatus: "ACCEPTED",
         },

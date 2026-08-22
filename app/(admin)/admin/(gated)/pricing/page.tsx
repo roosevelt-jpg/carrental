@@ -1,13 +1,15 @@
 import { PricingManager } from "@/components/admin/pricing-manager";
 import { prisma } from "@/lib/db";
+import { getCmsSettings } from "@/lib/cms/content";
 
 export default async function PricingPage() {
-  const [vehicles, rules] = await Promise.all([
+  const [vehicles, rules, cms] = await Promise.all([
     prisma.vehicle.findMany({ orderBy: [{ make: "asc" }, { model: "asc" }] }),
     prisma.pricingRule.findMany({
       include: { vehicle: true },
       orderBy: { id: "desc" },
     }),
+    getCmsSettings(),
   ]);
 
   return (
@@ -17,6 +19,7 @@ export default async function PricingPage() {
         Seasonal, duration, and weekday adjustments. The agent reads these through tools — never from the prompt.
       </p>
       <PricingManager
+        currency={cms.currency}
         vehicles={vehicles.map((v) => ({
           id: v.id,
           label: `${v.make} ${v.model} (${v.year})`,
