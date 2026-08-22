@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
 import { processInboundMessage, type InboundMessageJob } from "@/lib/queue/jobs/process-inbound-message";
 import { decryptPii } from "@/lib/privacy/pii";
+import { piiLookupHash } from "@/lib/privacy/pii";
+import { getInboundMessageQueue } from "@/lib/queue/queues";
+import { getRedisConnection } from "@/lib/queue/connection";
+import { createHash } from "node:crypto";
 
 type DeliveryPayload = { id: string; status: string; errors?: Array<{ code?: number }> };
 type TemplatePayload = { event: string; message_template_id?: string | number; message_template_name?: string; reason?: string };
@@ -10,7 +14,9 @@ export async function processWhatsAppWebhookEvent(eventId: string) {
   if (!event || event.status === "COMPLETE") return { skipped: true };
   try {
     const payload = JSON.parse(decryptPii(String(event.payload)) ?? "null") as unknown;
-    if (event.kind === "INBOUND_MESSAGE") await processInboundMessage(payload as InboundMessageJob);
+    if (event.kind === "INBOUND_MESSAGE") {
+      await enqueueInbound(event.eventId, payload as InboundMessageJob);
+    }
     if (event.kind === "DELIVERY_STATUS") await processDelivery(payload as DeliveryPayload);
     if (event.kind === "TEMPLATE_STATUS") await processTemplate(payload as TemplatePayload);
     await prisma.whatsAppWebhookEvent.update({ where: { id: event.id }, data: { status: "COMPLETE", processedAt: new Date(), error: null } });
@@ -19,6 +25,32 @@ export async function processWhatsAppWebhookEvent(eventId: string) {
     await prisma.whatsAppWebhookEvent.update({ where: { id: event.id }, data: { error: error instanceof Error ? error.message.slice(0, 1000) : "Unknown processing error" } });
     throw error;
   }
+}
+
+async function enqueueInbound(eventId: string, payload: InboundMessageJob) {
+  const senderHash = piiLookupHash(payload.from);
+  await getRedisConnection().set(
+    `latest-inbound:${senderHash}`,
+    payload.metaMessageId,
+    "EX",
+    300,
+  );
+  const jobId = `in-${createHash("sha256").update(payload.metaMessageId).digest("hex")}`;
+  await getInboundMessageQueue().add("process", { eventId, senderHash }, { jobId });
+}
+
+export async function processInboundWebhookEvent(eventId: string) {
+  const event = await prisma.whatsAppWebhookEvent.findUnique({
+    where: { eventId },
+    select: { kind: true, payload: true },
+  });
+  if (!event || event.kind !== "INBOUND_MESSAGE") {
+    return { skipped: true, reason: "inbound_event_not_found" };
+  }
+  const payload = JSON.parse(
+    decryptPii(String(event.payload)) ?? "null",
+  ) as InboundMessageJob;
+  return processInboundMessage(payload);
 }
 
 async function processDelivery(status: DeliveryPayload) {

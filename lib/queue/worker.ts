@@ -38,10 +38,12 @@ heartbeatTimer.unref();
 const inboundWorker = new Worker(
   QUEUE_NAMES.inboundMessage,
   async (job) => {
-    const { processInboundMessage } = await import("./jobs/process-inbound-message");
+    const { processInboundWebhookEvent } = await import("./jobs/process-whatsapp-webhook");
     const { withDistributedLock } = await import("./locks");
-    const sender = String(job.data.from ?? "unknown").replace(/\D/g, "");
-    return withDistributedLock(`conversation:${sender}`, () => processInboundMessage(job.data));
+    const senderHash = String(job.data.senderHash ?? "unknown");
+    return withDistributedLock(`conversation:${senderHash}`, () =>
+      processInboundWebhookEvent(String(job.data.eventId)),
+    );
   },
   { connection, concurrency: 8 },
 );

@@ -1,7 +1,7 @@
 import type { MessageTemplatePurpose } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { AgentReply } from "@/lib/agent/orchestrator";
-import { betweenMessageDelayMs, sleep, typingDelayMs } from "@/lib/agent/pacing";
+import { betweenMessageDelayMs, remainingTypingDelayMs, sleep } from "@/lib/agent/pacing";
 import {
   markMessageRead,
   sendCtaUrlMessage,
@@ -51,6 +51,7 @@ export async function deliverAgentReply(params: {
   typingMessageId?: string;
   outsideWindowTemplate?: MessageTemplatePurpose;
   sourceMessageId: string;
+  typingStartedAt?: number;
 }) {
   const customer = await prisma.customer.findUnique({
     where: { whatsappIdHash: piiLookupHash(params.to) },
@@ -80,7 +81,11 @@ export async function deliverAgentReply(params: {
     }
     if (params.typingMessageId && inWindow) {
       await markMessageRead(params.typingMessageId);
-      await sleep(typingDelayMs(text));
+      const delay = remainingTypingDelayMs(
+        text,
+        params.typingStartedAt ?? Date.now(),
+      );
+      if (delay > 0) await sleep(delay);
     }
     const notification = !inWindow && params.outsideWindowTemplate
       ? await prepareNotification({

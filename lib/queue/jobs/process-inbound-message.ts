@@ -14,6 +14,9 @@ import type { AgentReply } from "@/lib/agent/orchestrator";
 import { captureException } from "@/lib/observability/sentry";
 import { selectContextualReaction } from "@/lib/agent/contextual-reaction";
 import { decryptPii, encryptPii, piiLookupHash } from "@/lib/privacy/pii";
+import { getCmsSettings } from "@/lib/cms/content";
+import { getRedisConnection } from "@/lib/queue/connection";
+import { sleep } from "@/lib/agent/pacing";
 
 export type InboundMessageJob = {
   metaMessageId: string;
@@ -27,6 +30,7 @@ export type InboundMessageJob = {
 
 export async function processInboundMessage(data: InboundMessageJob) {
   const startedAt = Date.now();
+  const typingStartedAt = Date.now();
   const existing = await prisma.message.findUnique({
     where: { metaMessageId: data.metaMessageId },
   });
@@ -129,10 +133,44 @@ export async function processInboundMessage(data: InboundMessageJob) {
     );
   }
 
+  // Give short message bursts a moment to settle. Earlier messages are retained in
+  // the conversation, but only the newest one triggers a reply.
+  await sleep(350);
+  const latestInboundId = await getRedisConnection().get(
+    `latest-inbound:${piiLookupHash(data.from)}`,
+  );
+  if (latestInboundId && latestInboundId !== data.metaMessageId) {
+    await prisma.processingMetric.upsert({
+      where: { inboundMessageId: data.metaMessageId },
+      create: {
+        conversationId: conversation.id,
+        inboundMessageId: data.metaMessageId,
+        latencyMs: Date.now() - startedAt,
+        toolRounds: 0,
+        escalated: false,
+        succeeded: true,
+        errorCode: "coalesced_newer_message",
+      },
+      update: {},
+    });
+    return { skipped: true, reason: "coalesced_newer_message" };
+  }
+
   let reply = existing?.agentReply ? JSON.parse(decryptPii(String(existing.agentReply)) ?? "null") as AgentReply | null : null;
   let orchestrationSucceeded = true;
   if (!reply) {
-    try {
+    const greeting = data.text && isSimpleGreeting(data.text)
+      ? (await getCmsSettings()).agentGreeting.trim()
+      : "";
+    if (greeting) {
+      reply = {
+        texts: [greeting],
+        mediaIds: [],
+        escalated: false,
+        paymentLinks: [],
+        toolRounds: 0,
+      };
+    } else try {
       reply = await runOrchestrator(conversation.id);
     } catch (error) {
       orchestrationSucceeded = false;
@@ -175,6 +213,7 @@ export async function processInboundMessage(data: InboundMessageJob) {
     reply,
     typingMessageId: data.metaMessageId,
     sourceMessageId: data.metaMessageId,
+    typingStartedAt,
   });
 
   if (!existing && data.text) {
@@ -204,6 +243,10 @@ export async function processInboundMessage(data: InboundMessageJob) {
     paymentLinks: delivered.paymentLinks,
     escalated: reply.escalated,
   };
+}
+
+export function isSimpleGreeting(value: string) {
+  return /^\s*(?:hi|hello|hey|greetings|good\s+(?:morning|afternoon|evening))(?:\s+there)?[!.?\s]*$/i.test(value);
 }
 
 function normalizeIntent(value: string) {

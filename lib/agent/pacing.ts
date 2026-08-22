@@ -3,6 +3,10 @@ export function typingDelayMs(text: string): number {
   return Math.min(Math.max(text.length * factor, 800), 4000);
 }
 
+export function remainingTypingDelayMs(text: string, typingStartedAt: number): number {
+  return Math.max(0, typingDelayMs(text) - (Date.now() - typingStartedAt));
+}
+
 export function betweenMessageDelayMs(): number {
   return 1000 + Math.floor(Math.random() * 1500);
 }
